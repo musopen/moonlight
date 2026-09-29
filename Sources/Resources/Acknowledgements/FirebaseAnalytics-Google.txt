@@ -1,0 +1,25 @@
+Firebase Analytics (Google Analytics for Firebase)
+
+Moonlight uses Firebase Analytics to send anonymous usage statistics to Google
+Analytics. Turn it off with the Google Analytics setting in Settings > Privacy.
+Moonlight uses the FirebaseAnalyticsCore build, which does not include Google's
+advertising-identifier or ad-conversion components.
+
+Firebase Apple SDK
+Copyright Google LLC
+Licensed under the Apache License, Version 2.0.
+https://github.com/firebase/firebase-ios-sdk
+
+GoogleAppMeasurement
+Closed-source component distributed by Google under the Google APIs Terms of
+Service and the Firebase terms.
+https://firebase.google.com/terms/
+https://developers.google.com/terms/
+
+Firebase also includes the following open-source components from Google and
+others: GoogleUtilities, GoogleDataTransport, Promises, GTMSessionFetcher,
+abseil, gRPC, leveldb and InteropForGoogle (Apache License 2.0 or BSD-style
+licenses), and nanopb (zlib license).
+
+The full text of the Apache License, Version 2.0 is included in these
+acknowledgements with the Swift Collections notice.

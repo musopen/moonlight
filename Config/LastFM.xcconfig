@@ -1,0 +1,7 @@
+// Shared Last.fm build settings. Local credentials override the empty defaults.
+// CI may also supply these as xcodebuild command-line settings.
+
+LASTFM_API_KEY =
+LASTFM_SHARED_SECRET =
+
+#include? "LastFMSecrets.local.xcconfig"

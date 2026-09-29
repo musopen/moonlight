@@ -1,0 +1,12 @@
+// Signing and identity settings for the official Musopen build of Moonlight.
+//
+// To build and sign your own copy, copy Signing.local.example.xcconfig to
+// Signing.local.xcconfig (which git ignores) and set your own Apple team ID,
+// bundle ID and iCloud container there, then run `xcodegen generate`.
+// Please also use your own app name and icon; see "Trademarks" in README.md.
+
+MOONLIGHT_DEVELOPMENT_TEAM = YCH7DHY278
+MOONLIGHT_BUNDLE_ID = com.musopen.moonlight
+MOONLIGHT_ICLOUD_CONTAINER = iCloud.com.musopen.moonlight
+
+#include? "Signing.local.xcconfig"

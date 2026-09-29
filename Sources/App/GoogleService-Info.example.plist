@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>README</key>
+	<string>To turn on analytics in your own build, add an Apple app with your bundle ID to your own Firebase project, then save its GoogleService-Info.plist beside this file. The real file is gitignored.</string>
+</dict>
+</plist>

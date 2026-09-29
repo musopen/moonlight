@@ -1,0 +1,6 @@
+// Build settings for the macOS app: signing identity, Last.fm credentials and the
+// feedback endpoint.
+
+#include "Signing.xcconfig"
+#include "LastFM.xcconfig"
+#include "Feedback.xcconfig"

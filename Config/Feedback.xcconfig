@@ -1,0 +1,7 @@
+// Where the in-app feedback form sends messages. Empty by default, which hides the
+// form, so copies built from this source don't send feedback to Musopen. Official
+// builds set it in Feedback.local.xcconfig (gitignored); see the example file.
+
+MOONLIGHT_FEEDBACK_URL =
+
+#include? "Feedback.local.xcconfig"

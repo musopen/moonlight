@@ -1,0 +1,36 @@
+Moonlight
+Copyright 2026 Musopen
+
+Moonlight's source code is licensed under the Mozilla Public License, v. 2.0.
+See the LICENSE file, or obtain a copy at https://mozilla.org/MPL/2.0/.
+
+The following are NOT covered by Moonlight's license and remain under their own
+terms. Their license texts and credits are in Sources/Resources/Acknowledgements/
+and are shown in the app under Moonlight > Acknowledgements.
+
+Third-party code
+  - GRDB.swift, AEXML, Checksum, Swift Data Parsing, Swift Extensions (MIT)
+  - SPFKMetadata (vendored in LocalPackages/spfk-metadata, with Moonlight
+    modifications), SPFKAudioBase, SPFKBase, SPFKFilesystem, SPFKMetadataBase,
+    SPFKUtils (Ryan Francesconi)
+  - TagLib, used under the Mozilla Public License 1.1 option of its
+    LGPL-2.1 / MPL-1.1 dual license
+  - FLAC, Ogg, Opus and Vorbis (BSD 3-Clause)
+  - Swift Collections, Swift Numerics, Swift Async Algorithms (Apache 2.0)
+  - swift-xattr (ISC)
+  - Firebase Analytics (Apache 2.0); GoogleAppMeasurement is a closed-source
+    component distributed by Google under Google's terms
+
+Fonts
+  - ChicagoFLF (public domain)
+  - Lunabit Mono, Copyright 2025 Aaron Dunn (SIL Open Font License 1.1)
+
+Media and data
+  - Now Playing scene videos in Sources/Resources/Scenes/ are stock footage
+    from Pexels, used under the Pexels License (https://www.pexels.com/license/).
+  - The bundled radio station directory is derived from radio-browser.info.
+    Station names, logos and streams belong to their broadcasters.
+
+Trademarks
+  The Moonlight name and app icon identify official builds from Musopen and are
+  not licensed under the MPL. See "Trademarks" in README.md.

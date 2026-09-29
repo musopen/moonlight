@@ -1,0 +1,5 @@
+// Copy this file to Feedback.local.xcconfig to enable the in-app feedback form.
+// The endpoint receives a JSON POST with "email", "message", "name" and "website".
+// xcconfig treats "//" as a comment, so write the URL with "$()" between the slashes.
+
+MOONLIGHT_FEEDBACK_URL = https:/$()/example.com/api/contact

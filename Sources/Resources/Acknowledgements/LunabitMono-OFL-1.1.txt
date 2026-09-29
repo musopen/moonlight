@@ -1,0 +1,6 @@
+Lunabit Mono
+
+Copyright 2025 Aaron Dunn.
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+The license is available at https://scripts.sil.org/OFL.

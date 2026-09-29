@@ -1,0 +1,197 @@
+name: Moonlight
+options:
+  bundleIdPrefix: org.musopen
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+  indentWidth: 4
+  tabWidth: 4
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    MARKETING_VERSION: "1.4.2"
+    CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  GRDB:
+    url: https://github.com/groue/GRDB.swift
+    from: "6.0.0"
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    from: "12.13.0"
+  SPFKMetadata:
+    path: LocalPackages/spfk-metadata
+
+targets:
+  Moonlight:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    scheme:
+      testTargets:
+        - MoonlightTests
+    configFiles:
+      Debug: Config/Moonlight.xcconfig
+      Release: Config/Moonlight.xcconfig
+    sources:
+      - path: Sources
+        excludes:
+          - App/GoogleService-Info.example.plist
+          - Mobile
+          - Radio/Resources
+      - path: Sources/Radio/Resources/radio-catalog.sqlite
+        buildPhase: resources
+      # When the ignored GoogleService-Info.plist is installed before XcodeGen
+      # runs, it is automatically added to Copy Bundle Resources. Its example
+      # file above is excluded so it can never be bundled accidentally.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOONLIGHT_BUNDLE_ID)
+        INFOPLIST_FILE: Sources/App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Moonlight.entitlements
+        DEVELOPMENT_TEAM: $(MOONLIGHT_DEVELOPMENT_TEAM)
+        SWIFT_VERSION: "5.10"
+        PRODUCT_NAME: Moonlight
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -ObjC
+      configs:
+        Debug:
+          "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development"
+          ICLOUD_CONTAINER_ENVIRONMENT: Development
+          APS_ENVIRONMENT: development
+        Release:
+          ICLOUD_CONTAINER_ENVIRONMENT: Production
+          APS_ENVIRONMENT: production
+    entitlements:
+      path: Moonlight.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.network.client: true
+        com.apple.developer.icloud-container-identifiers:
+          - $(MOONLIGHT_ICLOUD_CONTAINER)
+        com.apple.developer.icloud-services:
+          - CloudKit
+        com.apple.developer.icloud-container-environment: $(ICLOUD_CONTAINER_ENVIRONMENT)
+        com.apple.developer.aps-environment: $(APS_ENVIRONMENT)
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(MOONLIGHT_BUNDLE_ID)
+    dependencies:
+      - package: GRDB
+      - package: Firebase
+        # Core omits Google's advertising-ID and ad-conversion components.
+        product: FirebaseAnalyticsCore
+      - package: SPFKMetadata
+      - sdk: AVKit.framework
+      - sdk: AudioToolbox.framework
+      - sdk: CoreAudio.framework
+      - sdk: CoreServices.framework
+      - sdk: CloudKit.framework
+      - sdk: MediaPlayer.framework
+      - sdk: Security.framework
+
+  MoonlightMobile:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    scheme:
+      testTargets:
+        - MoonlightMobileTests
+    configFiles:
+      Debug: Config/Signing.xcconfig
+      Release: Config/Signing.xcconfig
+    sources:
+      - path: Sources/Mobile
+      - path: Sources/Assets.xcassets
+      - path: Sources/Database/DatabaseManager.swift
+      - path: Sources/Database/Schema.swift
+      - path: Sources/Database/Migrator.swift
+      - path: Sources/Database/Track.swift
+      - path: Sources/Database/Playlist.swift
+      - path: Sources/Database/TextCleaning.swift
+      - path: Sources/Database/ArtworkStore.swift
+      - path: Sources/Database/SyncModels.swift
+      - path: Sources/Database/SyncTransport.swift
+      - path: Sources/Database/SyncApplyLayer.swift
+      - path: Sources/Database/IdentityRepository.swift
+      - path: Sources/Database/MetadataArchive.swift
+      - path: Sources/Database/SmartPlaylist.swift
+      - path: Sources/Database/CloudKitSyncCoordinator.swift
+      - path: Sources/Database/ContainerFileReference.swift
+      - path: Sources/Database/MobileRuntimeSupport.swift
+      - path: Sources/Scanner/PortableIdentity.swift
+      - path: Sources/Scanner/ArtworkExtractor.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MOONLIGHT_BUNDLE_ID)
+        PRODUCT_NAME: Moonlight
+        INFOPLIST_FILE: Sources/Mobile/MobileInfo.plist
+        CODE_SIGN_ENTITLEMENTS: MoonlightMobile.entitlements
+        DEVELOPMENT_TEAM: $(MOONLIGHT_DEVELOPMENT_TEAM)
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.10"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Debug:
+          ICLOUD_CONTAINER_ENVIRONMENT: Development
+          APS_ENVIRONMENT: development
+        Release:
+          ICLOUD_CONTAINER_ENVIRONMENT: Production
+          APS_ENVIRONMENT: production
+    entitlements:
+      path: MoonlightMobile.entitlements
+      properties:
+        com.apple.developer.icloud-container-identifiers:
+          - $(MOONLIGHT_ICLOUD_CONTAINER)
+        com.apple.developer.icloud-services:
+          - CloudKit
+        com.apple.developer.icloud-container-environment: $(ICLOUD_CONTAINER_ENVIRONMENT)
+        aps-environment: $(APS_ENVIRONMENT)
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(MOONLIGHT_BUNDLE_ID)
+    dependencies:
+      - package: GRDB
+      - package: SPFKMetadata
+        product: SPFKMetadataCBridge
+      - sdk: AVFoundation.framework
+      - sdk: CloudKit.framework
+      - sdk: MediaPlayer.framework
+      - sdk: Security.framework
+
+  MoonlightTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - Tests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.musopen.moonlighttests
+        SWIFT_VERSION: "5.10"
+    dependencies:
+      - target: Moonlight
+
+  MoonlightMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - MobileTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.musopen.moonlightmobiletests
+        SWIFT_VERSION: "5.10"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Moonlight.app/Moonlight
+        BUNDLE_LOADER: $(TEST_HOST)
+    dependencies:
+      - target: MoonlightMobile

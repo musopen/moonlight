@@ -1,0 +1,66 @@
+# Xcode
+*.xcodeproj/xcuserdata/
+# Workspaces are ignored except the SwiftPM lockfile, which pins dependency versions.
+**/*.xcworkspace/*
+!**/*.xcworkspace/xcshareddata/
+**/*.xcworkspace/xcshareddata/*
+!**/*.xcworkspace/xcshareddata/swiftpm/
+**/*.xcworkspace/xcshareddata/swiftpm/*
+!**/*.xcworkspace/xcshareddata/swiftpm/Package.resolved
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Firebase
+Sources/App/GoogleService-Info.plist
+
+# Local integration credentials
+/Config/LastFMSecrets.local.xcconfig
+/Config/Signing.local.xcconfig
+/Config/Feedback.local.xcconfig
+/AppStoreConnect.local.env
+
+
+
+# Maintainer's release tooling (kept locally, not published)
+/fastlane/
+/Gemfile
+/Gemfile.lock
+/ExportOptions-DeveloperID.plist
+
+# Maintainer's internal notes and scripts (kept locally, not published)
+/TODO.md
+/Scripts/
+/docs/FIREBASE_ANALYTICS.md
+/docs/CROSS_DEVICE_SYNC_IMPLEMENTATION.md
+/docs/PORTABLE_ID_TAGGER_MATRIX.md
+
+# Release artifacts
+*.pkg
+*.app/
+*.dSYM.zip
+AuthKey_*.p8
+
+# Profiling
+*.profraw
+*.profdata
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes

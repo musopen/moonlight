@@ -1,0 +1,6 @@
+SPFKUtils
+
+Copyright Ryan Francesconi. All Rights Reserved.
+Revision History at https://github.com/ryanfrancesconi/spfk-utils
+
+No top-level license file was present in the Swift Package Manager checkout resolved for Moonlight. This notice is included so the dependency is visible in the app's acknowledgements.

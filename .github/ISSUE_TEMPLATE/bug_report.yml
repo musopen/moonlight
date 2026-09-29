@@ -1,0 +1,52 @@
+name: Bug report
+description: Something in Moonlight isn't working as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. For security issues, please use the repository's
+        Security tab instead (see SECURITY.md). Please don't attach copyrighted music.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Device
+      options:
+        - Mac
+        - iPhone
+        - iPad
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Moonlight and OS versions
+      description: Moonlight version (Moonlight > About Moonlight) and macOS or iOS version.
+      placeholder: Moonlight 1.4.2, macOS 15.6
+    validations:
+      required: true
+  - type: input
+    id: format
+    attributes:
+      label: Audio format (if the problem is with particular files)
+      placeholder: FLAC, tagged with Mp3tag
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots or other details that might help.

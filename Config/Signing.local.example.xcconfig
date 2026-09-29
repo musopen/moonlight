@@ -1,0 +1,9 @@
+// Copy this file to Signing.local.xcconfig to build Moonlight under your own
+// Apple developer account. Never commit the local file.
+//
+// Your team ID is shown at https://developer.apple.com/account under Membership.
+// The iCloud container must exist in your account for cross-device sync to work.
+
+MOONLIGHT_DEVELOPMENT_TEAM = ABCDE12345
+MOONLIGHT_BUNDLE_ID = com.example.moonlight
+MOONLIGHT_ICLOUD_CONTAINER = iCloud.com.example.moonlight

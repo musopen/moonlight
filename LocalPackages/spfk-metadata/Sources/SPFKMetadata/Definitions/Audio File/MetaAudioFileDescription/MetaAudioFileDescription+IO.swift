@@ -1,0 +1,350 @@
+// Copyright Ryan Francesconi. All Rights Reserved. Revision History at https://github.com/ryanfrancesconi/spfk-metadata
+
+import AEXML
+import AVFoundation
+import Foundation
+import SPFKAudioBase
+import SPFKBase
+import SPFKMetadataBase
+import SPFKMetadataC
+import SPFKUtils
+
+extension MetaAudioFileDescription {
+    /// Reads all metadata from the audio file at the given URL.
+    ///
+    /// For WAV files, all properties (format, tags, BEXT, iXML, artwork, markers)
+    /// are read via TagLib + AudioToolbox — `AVAudioFile` is not opened.
+    /// For other formats, `AVAudioFile` provides format properties while TagLib handles tags.
+    ///
+    /// - Parameter url: URL to the audio file to parse.
+    /// - Throws: If the file cannot be opened or its format is unsupported.
+    public init(parsing url: URL) async throws {
+        let fileType = AudioFileType(url: url)
+        var avFrameCount: AVAudioFramePosition = 0
+
+        if fileType == .wav {
+            self.init(url: url, fileType: fileType)
+            try loadWave()
+            avFrameCount = (try? AVAudioFile(forReading: url))?.length ?? 0
+
+        } else {
+            let audioFile = try AVAudioFile(forReading: url)
+            avFrameCount = audioFile.length
+
+            self.init(
+                url: url,
+                fileType: fileType,
+                audioFormat: AudioFormatProperties(audioFile: audioFile)
+            )
+            try await load()
+
+            if fileType == .flac {
+                loadFLAC()
+            }
+        }
+
+        // A file is considered not AV-playable when AVAudioFile opens it successfully
+        // but reports 0 frames. This happens with malformed containers (e.g. WAV files
+        // whose RIFF chunk size header is wrong) where AVFoundation stops reading at the
+        // declared boundary and never finds the audio data.
+        isAVPlayable = avFrameCount > 0
+
+        if let bitRate = tagProperties.audioProperties?.bitRate {
+            audioFormat?.update(bitRate: bitRate)
+        }
+
+        await updateDefaultImage()
+    }
+
+    private mutating func loadWave() throws {
+        let waveFile = WaveFileC(path: url.path)
+
+        guard waveFile.load() else {
+            throw NSError(description: "Failed to load wave file at \(url.path)")
+        }
+
+        if let audioProperties = waveFile.audioPropertiesC {
+            let format = AudioFormatProperties(cObject: audioProperties)
+            audioFormat = format
+            tagProperties.audioProperties = format
+        }
+
+        if let xml = waveFile.iXML {
+            // validate and respace xml if it's valid
+            iXMLMetadata =
+                (try? AEXMLDocument(xml: xml).xml)
+                    ?? xml //  otherwise just load the string as is
+        }
+
+        bextDescription = waveFile.bextDescription?.validated()
+
+        if let audioMarkers = waveFile.markers as? [AudioMarker], audioMarkers.isNotEmpty {
+            markerCollection = AudioMarkerDescriptionCollection(audioMarkers: audioMarkers)
+        }
+
+        // INFO
+        if let dict = waveFile.infoDictionary as? [String: String] {
+            for item in dict {
+                guard let key = InfoFrameKey(value: item.key) else {
+                    // Log.error("Unhandled INFO frame", item)
+                    continue
+                }
+
+                tagProperties.data.set(infoFrame: key, value: item.value)
+            }
+        }
+
+        // ID3
+        if let dict = waveFile.id3Dictionary as? [String: String] {
+            for item in dict {
+                guard let key = ID3FrameKey(value: item.key) else {
+                    tagProperties.data.set(taglibKey: item.key, value: item.value)
+                    continue
+                }
+
+                switch key {
+                case .picture:
+                    continue
+                case .userDefined:
+                    // Log.error("User Defined", item.value)
+                    break
+                default:
+                    tagProperties.data.set(id3Frame: key, value: item.value)
+                }
+            }
+        }
+
+        imageDescription.pictureRef = waveFile.tagPicture?.pictureRef
+    }
+
+    /// Reads iXML and BEXT APPLICATION blocks from a FLAC file, supplementing the
+    /// generic Xiph-tag load already performed by `load()`.
+    ///
+    /// BEXT priority: binary APPLICATION block (canonical) → iXML `<BEXT>` element (fallback).
+    /// The fallback covers Sequoia-style FLAC files that embed BEXT info inside iXML only.
+    private mutating func loadFLAC() {
+        let flacFile = FlacFileC(path: url.path)
+        guard flacFile.load() else { return }
+
+        if let xml = flacFile.iXML {
+            iXMLMetadata =
+                (try? AEXMLDocument(xml: xml).xml)
+                    ?? xml
+        }
+
+        if let bext = flacFile.bextDescription?.validated() {
+            bextDescription = bext
+        } else if let xml = flacFile.iXML,
+                  let ixml = try? IXMLMetadata(xml: xml),
+                  let bext = BEXTDescription(ixmlMetadata: ixml) {
+            bextDescription = bext.validated()
+        }
+    }
+
+    private mutating func load() async throws {
+        // Not all formats are supported by TagLib (e.g., .caf),
+        // so tag loading is best-effort.
+        if let value = try? TagProperties(url: url) {
+            tagProperties = value
+        }
+
+        if let value = try? await AudioMarkerDescriptionCollection(url: url) {
+            markerCollection = value
+        }
+
+        imageDescription.pictureRef = try? TagPictureRef.parsing(url: url)
+    }
+
+    private mutating func updateDefaultImage() async {
+        if imageDescription.cgImage == nil {
+            imageDescription.cgImage = url.bestImageRepresentation?.cgImage
+            imageDescription.description = url.path
+        }
+
+        await imageDescription.createThumbnail()
+    }
+}
+
+extension MetaAudioFileDescription {
+    /// Writes all current metadata back to the file.
+    ///
+    /// For WAV files, tags (BEXT, iXML, INFO, ID3) are always written via TagLib.
+    /// Markers and artwork are conditionally written based on dirty flags.
+    /// For other formats, tags are saved via TagLib, artwork and markers are written separately if requested.
+    /// Finder tags and modification date are updated after saving.
+    ///
+    /// - Parameter dirtyFlags: The set of metadata aspects that need saving.
+    ///   Defaults to `[.metadata]` (tags only). Include `.image` for artwork,
+    ///   `.markers` for markers. The `.xmp` flag is handled externally.
+    public mutating func save(dirtyFlags: Set<MetadataDirtyFlag> = [.metadata]) throws {
+        // Log.debug("Saving", url)
+
+        let imageNeedsSave = dirtyFlags.contains(.image)
+        let markersNeedsSave = dirtyFlags.contains(.markers)
+
+        if fileType == .wav {
+            try saveWave(imageNeedsSave: imageNeedsSave, markersNeedsSave: markersNeedsSave)
+
+        } else if fileType == .flac {
+            try saveFLAC()
+            try saveOther(imageNeedsSave: imageNeedsSave, markersNeedsSave: markersNeedsSave)
+
+        } else {
+            try saveOther(imageNeedsSave: imageNeedsSave, markersNeedsSave: markersNeedsSave)
+        }
+
+        let finderTags = urlProperties.finderTags
+        try url.set(finderTags: finderTags)
+        try url.updateModificationDate()
+
+        urlProperties = URLProperties(url: url)
+    }
+
+    /// Writes iXML and BEXT APPLICATION blocks to the FLAC file.
+    ///
+    /// Must be called before `saveOther()` so the APPLICATION blocks are on disk when
+    /// TagLib reopens the file to write Xiph comment tags. TagLib's `strip()` for FLAC
+    /// removes only ID3 and Xiph tags, not APPLICATION blocks, so the blocks survive.
+    private func saveFLAC() throws {
+        let flacFile = FlacFileC(path: url.path)
+        guard flacFile.load() else {
+            throw NSError(description: "Failed to open \(url.path) for FLAC iXML/BEXT writing")
+        }
+
+        flacFile.bextDescription = bextDescription
+        flacFile.iXML = iXMLMetadata
+
+        guard flacFile.save() else {
+            throw NSError(description: "Failed to write iXML/BEXT to \(url.path)")
+        }
+    }
+
+    private mutating func saveOther(imageNeedsSave: Bool = false, markersNeedsSave: Bool = false) throws {
+        try tagProperties.save(to: url)
+
+        // tagProperties.save strips all existing tags (including embedded artwork) to ensure
+        // clean replacement. Always restore the picture if one exists in memory so that
+        // saving metadata alone doesn't discard artwork.
+        if let pictureRef = imageDescription.pictureRef {
+            try save(pictureRef: pictureRef)
+        }
+
+        if markersNeedsSave {
+            try saveMarkers()
+        }
+    }
+
+    /// Writes embedded artwork to the file via TagLib.
+    /// - Parameter pictureRef: The image data to embed.
+    public func save(pictureRef: TagPictureRef) throws {
+        guard TagPicture.write(pictureRef, path: url.path) else {
+            throw NSError(description: "Failed to update image")
+        }
+    }
+
+    /// Writes WAV metadata via TagLib (BEXT, iXML, ID3, INFO, artwork) and markers via AudioToolbox.
+    /// Dirty flags control which chunks are actually written.
+    private mutating func saveWave(imageNeedsSave: Bool = false, markersNeedsSave: Bool = false) throws {
+        let waveFile = WaveFileC(path: url.path)
+
+        // extra chunks
+        waveFile.bextDescription = bextDescription
+        waveFile.iXML = iXMLMetadata
+        waveFile.markers = audioMarkers
+
+        // dirty flags
+        waveFile.markersNeedsSave = markersNeedsSave
+        waveFile.imageNeedsSave = imageNeedsSave
+
+        // image
+        // Always pass the picture to WaveFileC if one exists in memory, so that
+        // a metadata-only save doesn't discard existing embedded artwork. The
+        // imageNeedsSave flag still controls whether WaveFileC actually writes it.
+        if let pictureRef = imageDescription.pictureRef {
+            waveFile.tagPicture = TagPicture(picture: pictureRef)
+        }
+
+        // metadata
+        for item in tagProperties.tags {
+            if item.key.id3Frame == .userDefined {
+                waveFile.id3Dictionary[item.key.taglibKey] = item.value
+            } else {
+                waveFile[id3: item.key.id3Frame] = item.value
+            }
+
+            if let infoFrame = item.key.infoFrame {
+                waveFile[info: infoFrame] = item.value
+            }
+        }
+
+        for item in tagProperties.customTags {
+            let uppercaseKey = item.key.uppercased()
+
+            waveFile.id3Dictionary[uppercaseKey] = item.value
+
+            if let infoFrame = InfoFrameKey(taglibKey: uppercaseKey) {
+                waveFile[info: infoFrame] = item.value
+            }
+        }
+
+        // Log.debug("id3Dictionary", waveFile.id3Dictionary)
+        // Log.debug("infoDictionary", waveFile.infoDictionary)
+
+        guard waveFile.save() else {
+            throw NSError(description: "Failed to save \(url.path)")
+        }
+    }
+
+    /// Writes markers to non-WAV files via format-specific utilities.
+    ///
+    /// Dispatches to `MP4ChapterUtil`, `MPEGChapterUtil`, `XiphChapterUtil`, or
+    /// `AudioMarkerUtil` depending on `fileType`.
+    private func saveMarkers() throws {
+        let path = url.path
+        let success: Bool
+
+        switch fileType {
+        case .mp3:
+            success = MPEGChapterUtil.writeChapters(markerCollection.chapterMarkers, to: path)
+
+        case .m4a, .mp4, .aac, .m4b:
+            success = MP4ChapterUtil.writeChapters(markerCollection.chapterMarkers, to: path)
+
+        case .flac, .ogg, .opus:
+            success = XiphChapterUtil.writeChapters(markerCollection.chapterMarkers, to: path)
+
+        case .aiff, .aifc:
+            success = AudioMarkerUtil.update(url, markers: audioMarkers)
+
+        default:
+            Log.error("Marker save not supported for \(fileType?.rawValue ?? "unknown")")
+            return
+        }
+
+        guard success else {
+            throw NSError(description: "Failed to save markers to \(url.path)")
+        }
+    }
+}
+
+extension MetaAudioFileDescription {
+    /// Converts the ``markerCollection`` to an array of `AudioMarker` bridge objects for WAV file writing.
+    public var audioMarkers: [AudioMarker] {
+        var waveMarkers = [AudioMarker]()
+
+        for i in 0 ..< markerCollection.markerDescriptions.count {
+            let desc = markerCollection.markerDescriptions[i]
+
+            waveMarkers.append(
+                AudioMarker(
+                    name: desc.name ?? "Marker",
+                    time: desc.startTime,
+                    sampleRate: audioFormat?.sampleRate ?? 0,
+                    markerID: Int32(i)
+                )
+            )
+        }
+
+        return waveMarkers
+    }
+}

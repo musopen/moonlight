@@ -1,0 +1,9 @@
+Radio Browser
+
+Station directory data from radio-browser.info, a free, community-maintained
+directory of internet radio stations.
+https://www.radio-browser.info/
+
+Moonlight's built-in station list was originally derived from this directory and
+is reviewed and maintained by Musopen. The app does not contact Radio Browser.
+Station names, logos and streams belong to their respective broadcasters.
