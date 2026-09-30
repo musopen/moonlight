@@ -1,9 +1,162 @@
 import AppKit
 import GRDB
+import SPFKMetadata
+import SPFKMetadataC
 import XCTest
 @testable import Moonlight
 
 final class ScannerTests: XCTestCase {
+
+    func testMetadataParserEmptyWaveIXML() throws {
+        try withParserFixture(waveFixture(ixml: Data()), extension: "wav") { url in
+            let file = WaveFileC(path: url.path)
+            XCTAssertTrue(file.load())
+            XCTAssertEqual(file.iXML, "")
+        }
+    }
+
+    func testMetadataParserEmptyFlacIXML() throws {
+        try withParserFixture(flacFixture(ixml: Data()), extension: "flac") { url in
+            let file = FlacFileC(path: url.path)
+            XCTAssertTrue(file.load())
+            XCTAssertEqual(file.iXML, "")
+        }
+    }
+
+    func testMetadataParserIXMLControls() throws {
+        let xml = "<BWFXML><PROJECT>Étude 日本語 🎵</PROJECT></BWFXML>"
+        for payload in [nil, Data(xml.utf8)] as [Data?] {
+            try withParserFixture(waveFixture(ixml: payload), extension: "wav") { url in
+                let file = WaveFileC(path: url.path)
+                XCTAssertTrue(file.load())
+                XCTAssertEqual(file.iXML, payload == nil ? nil : xml)
+            }
+            try withParserFixture(flacFixture(ixml: payload), extension: "flac") { url in
+                let file = FlacFileC(path: url.path)
+                XCTAssertTrue(file.load())
+                XCTAssertEqual(file.iXML, payload == nil ? nil : xml)
+            }
+        }
+    }
+
+    func testMetadataParserInvalidChannels() throws {
+        for channels in [Int32.min, -1, 0] {
+            let properties = TagAudioPropertiesC()
+            properties.channelCount = channels
+            properties.sampleRate = 44_100
+            XCTAssertEqual(AudioFormatProperties(cObject: properties).channelCount, 0)
+        }
+        for channels in [UInt16(0x8000), UInt16.max] {
+            try withParserFixture(waveFixture(channels: channels), extension: "wav") { url in
+                let file = WaveFileC(path: url.path)
+                XCTAssertTrue(file.load())
+                let properties = try XCTUnwrap(file.audioPropertiesC)
+                XCTAssertLessThan(properties.channelCount, 0)
+                XCTAssertEqual(AudioFormatProperties(cObject: properties).channelCount, 0)
+                let tags = try TagProperties(url: url)
+                XCTAssertEqual(tags.audioProperties?.channelCount, 0)
+            }
+        }
+    }
+
+    func testMetadataParserChannelControls() {
+        for channels in [Int32(1), 2, 6, Int32.max] {
+            let properties = TagAudioPropertiesC()
+            properties.channelCount = channels
+            properties.sampleRate = 48_000
+            properties.bitsPerSample = 24
+            properties.duration = 2.5
+            let format = AudioFormatProperties(cObject: properties)
+            XCTAssertEqual(format.channelCount, UInt32(channels))
+            XCTAssertEqual(format.sampleRate, 48_000)
+            XCTAssertEqual(format.bitsPerChannel, 24)
+            XCTAssertEqual(format.duration, 2.5)
+        }
+    }
+
+    func testMetadataParserChapterComment() throws {
+        let comment = id3Frame("COMM", payload: Data([0]) + Data("eng\0comment\0text".utf8))
+        try assertChapter(embedded: comment, expectedName: "chapter-1")
+    }
+
+    func testMetadataParserChapterPicture() throws {
+        let picture = id3Frame("APIC", payload: Data([0]) + Data("image/png\0".utf8) + Data([3, 0, 1]))
+        let title = id3Frame("TIT2", payload: Data([0]) + Data("Chapter title".utf8))
+        try assertChapter(embedded: picture + title, expectedName: "Chapter title")
+        try assertChapter(embedded: title + picture, expectedName: "Chapter title")
+    }
+
+    func testMetadataParserChapterControls() throws {
+        try assertChapter(embedded: Data(), expectedName: "chapter-1")
+        let title = id3Frame("TIT2", payload: Data([0]) + Data("Chapter title".utf8))
+        try assertChapter(embedded: title, expectedName: "Chapter title")
+        let replacement = id3Frame("TIT2", payload: Data([0]) + Data("Last title".utf8))
+        try assertChapter(embedded: title + replacement, expectedName: "Last title")
+    }
+
+    private func assertChapter(embedded: Data, expectedName: String) throws {
+        let chapter = Data("chapter-1\0".utf8) + parserInteger(1_250, littleEndian: false)
+            + parserInteger(2_750, littleEndian: false) + Data(repeating: 0xff, count: 8) + embedded
+        let frames = id3Frame("CHAP", payload: chapter)
+        let size = UInt32(frames.count)
+        let syncSafeSize = Data((0..<4).reversed().map { UInt8((size >> ($0 * 7)) & 0x7f) })
+        let audioFrame = Data([0xff, 0xfb, 0x90, 0x00]) + Data(repeating: 0, count: 413)
+        let fileData = Data("ID3".utf8) + Data([3, 0, 0]) + syncSafeSize + frames + audioFrame + audioFrame
+        try withParserFixture(fileData, extension: "mp3") { url in
+            let chapters = try XCTUnwrap(MPEGChapterUtil.chapters(in: url.path) as? [ChapterMarker])
+            XCTAssertEqual(chapters.count, 1)
+            let marker = try XCTUnwrap(chapters.first)
+            XCTAssertEqual(marker.name, expectedName)
+            XCTAssertEqual(marker.startTime, 1.25)
+            XCTAssertEqual(marker.endTime, 2.75)
+        }
+    }
+
+    private func id3Frame(_ id: String, payload: Data) -> Data {
+        Data(id.utf8) + parserInteger(UInt32(payload.count), littleEndian: false) + Data([0, 0]) + payload
+    }
+
+    private func waveFixture(channels: UInt16 = 1, ixml: Data? = nil) -> Data {
+        let format = Data([1, 0, UInt8(truncatingIfNeeded: channels), UInt8(channels >> 8)])
+            + parserInteger(44_100) + parserInteger(88_200) + Data([2, 0, 16, 0])
+        var body = Data("WAVE".utf8) + riffChunk("fmt ", payload: format)
+            + riffChunk("data", payload: Data(repeating: 0, count: 882))
+        if let ixml { body += riffChunk("iXML", payload: ixml) }
+        return Data("RIFF".utf8) + parserInteger(UInt32(body.count)) + body
+    }
+
+    private func riffChunk(_ id: String, payload: Data) -> Data {
+        Data(id.utf8) + parserInteger(UInt32(payload.count)) + payload
+            + (payload.count.isMultiple(of: 2) ? Data() : Data([0]))
+    }
+
+    private func flacFixture(ixml: Data?) -> Data {
+        var streamInfo = Data([0, 16, 0, 16]) + Data(repeating: 0, count: 6)
+        let format = (UInt64(44_100) << 44) | (UInt64(15) << 36) | 441
+        streamInfo += Data((0..<8).reversed().map { UInt8(truncatingIfNeeded: format >> ($0 * 8)) })
+        streamInfo += Data(repeating: 0, count: 16)
+        var data = Data("fLaC".utf8) + Data([ixml == nil ? 0x80 : 0, 0, 0, 34]) + streamInfo
+        if let ixml {
+            let block = Data("iXML".utf8) + ixml
+            let size = UInt32(block.count)
+            data += Data([0x82, UInt8(size >> 16), UInt8(truncatingIfNeeded: size >> 8), UInt8(truncatingIfNeeded: size)]) + block
+        }
+        return data
+    }
+
+    private func parserInteger(_ value: UInt32, littleEndian: Bool = true) -> Data {
+        let bytes = (0..<4).map { UInt8(truncatingIfNeeded: value >> ($0 * 8)) }
+        return Data(littleEndian ? bytes : Array(bytes.reversed()))
+    }
+
+    private func withParserFixture(_ data: Data, extension suffix: String, body: (URL) throws -> Void) throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("parser-fixture").appendingPathExtension(suffix)
+        try data.write(to: url)
+        try body(url)
+    }
 
     func testSupportedExtensions() {
         XCTAssertTrue(MetadataExtractor.supportedExtensions.contains("mp3"))

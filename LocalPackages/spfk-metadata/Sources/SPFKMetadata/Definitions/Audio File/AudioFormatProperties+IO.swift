@@ -20,9 +20,10 @@ extension AudioFormatProperties {
     }
 
     /// Creates format properties from the C bridge struct returned by TagLib.
+    /// Invalid negative channel counts are represented as unknown (zero).
     public init(cObject: TagAudioPropertiesC) {
         self.init(
-            channelCount: AVAudioChannelCount(cObject.channelCount),
+            channelCount: AVAudioChannelCount(exactly: cObject.channelCount) ?? 0,
             sampleRate: cObject.sampleRate,
             bitsPerChannel: cObject.bitsPerSample > 0 ? Int(cObject.bitsPerSample) : nil,
             bitRate: cObject.bitRate,

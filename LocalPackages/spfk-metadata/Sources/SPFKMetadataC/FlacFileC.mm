@@ -7,6 +7,7 @@
 
 #import "BEXTDescriptionC.h"
 #import "FlacFileC.h"
+#import "StringUtil.h"
 #import "TagAudioPropertiesC.h"
 
 @implementation FlacFileC
@@ -59,8 +60,7 @@ using namespace TagLib;
     }
 
     if (flacFile->hasiXMLData()) {
-        _iXML = [[NSString alloc] initWithCString:flacFile->iXMLData().data(String::UTF8).data()
-                                         encoding:NSUTF8StringEncoding];
+        _iXML = StringUtil::utf8NSString(flacFile->iXMLData());
     }
 
     return true;
