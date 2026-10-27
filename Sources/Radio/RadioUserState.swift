@@ -77,11 +77,23 @@ final class RadioUserState: @unchecked Sendable {
     }
 
     func unresolvedFavorites() throws -> [UnresolvedRadioFavorite] {
-        try queue.read { db in
+        var unresolved = try queue.read { db in
             try Row.fetchAll(db, sql: "SELECT stationuuid,name,added_at FROM unresolved_favorites ORDER BY added_at DESC").map { row in
                 UnresolvedRadioFavorite(stationUUID: row["stationuuid"], name: row["name"], addedAt: row["added_at"])
             }
         }
+        let favorites = try queue.read { try Row.fetchAll($0, sql: "SELECT channel_id,stationuuid,added_at FROM favorites") }
+        for row in favorites {
+            let channelID: String = row["channel_id"]
+            guard try catalog.fetchStation(channelID: channelID) == nil else { continue }
+            let uuid: String = row["stationuuid"]
+            if !unresolved.contains(where: { $0.stationUUID == uuid }) {
+                unresolved.append(UnresolvedRadioFavorite(
+                    stationUUID: uuid, name: try catalog.channelName(channelID: channelID), addedAt: row["added_at"]
+                ))
+            }
+        }
+        return unresolved.sorted { $0.addedAt > $1.addedAt }
     }
 
     func favoriteStations() throws -> [RadioStation] {
@@ -103,7 +115,14 @@ final class RadioUserState: @unchecked Sendable {
     }
 
     func removeUnresolvedFavorite(stationUUID: String) throws {
-        try queue.write { try $0.execute(sql: "DELETE FROM unresolved_favorites WHERE stationuuid=?", arguments: [stationUUID]) }
+        let ids = try queue.read { try String.fetchAll($0, sql: "SELECT channel_id FROM favorites WHERE stationuuid=?", arguments: [stationUUID]) }
+        let unavailable = try ids.filter { try catalog.fetchStation(channelID: $0) == nil }
+        try queue.write { db in
+            try db.execute(sql: "DELETE FROM unresolved_favorites WHERE stationuuid=?", arguments: [stationUUID])
+            for channelID in unavailable {
+                try db.execute(sql: "DELETE FROM favorites WHERE channel_id=?", arguments: [channelID])
+            }
+        }
     }
 
     private func migrateLegacyIfNeeded() throws {
