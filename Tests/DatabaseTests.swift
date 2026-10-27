@@ -9,7 +9,7 @@ final class DatabaseTests: XCTestCase {
     private var temporaryDirectory: URL!
 
     override func setUp() async throws {
-        temporaryDirectory = FileManager.default.temporaryDirectory
+        temporaryDirectory = TestTemporaryDirectory.root
             .appendingPathComponent("MoonlightDatabaseTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
         db = try DatabaseManager(path: temporaryDirectory.appendingPathComponent("library.sqlite").path)

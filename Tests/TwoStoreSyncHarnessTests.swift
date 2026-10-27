@@ -12,7 +12,7 @@ final class TwoStoreSyncHarnessTests: XCTestCase {
     private let playlistID = "FFFFFFFF-FFFF-4FFF-8FFF-FFFFFFFFFFFF"
 
     override func setUp() async throws {
-        root = FileManager.default.temporaryDirectory.appendingPathComponent("MoonlightTwoStore-\(UUID().uuidString)", isDirectory: true)
+        root = TestTemporaryDirectory.root.appendingPathComponent("MoonlightTwoStore-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         mac = try DatabaseManager(path: root.appendingPathComponent("mac.sqlite").path)
         phone = try DatabaseManager(path: root.appendingPathComponent("phone.sqlite").path)

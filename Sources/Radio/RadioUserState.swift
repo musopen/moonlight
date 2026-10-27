@@ -49,6 +49,27 @@ final class RadioUserState: @unchecked Sendable {
             try db.execute(sql: "CREATE TABLE IF NOT EXISTS state_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID")
         }
         try migrateLegacyIfNeeded()
+        try migrateMergedFavorites()
+    }
+
+    private func migrateMergedFavorites() throws {
+        let aliases = try catalog.channelAliases()
+        try queue.write { db in
+            let favorites = try Row.fetchAll(db, sql: "SELECT channel_id,stationuuid,added_at FROM favorites")
+            for row in favorites {
+                let old: String = row["channel_id"]
+                guard let canonical = aliases[old] else { continue }
+                let uuid: String = row["stationuuid"]
+                let date: Date = row["added_at"]
+                try db.execute(sql: """
+                    INSERT INTO favorites(channel_id,stationuuid,added_at) VALUES (?,?,?)
+                    ON CONFLICT(channel_id) DO UPDATE SET
+                        stationuuid=excluded.stationuuid, added_at=excluded.added_at
+                    WHERE excluded.added_at < favorites.added_at
+                    """, arguments: [canonical, uuid, date])
+                try db.execute(sql: "DELETE FROM favorites WHERE channel_id=?", arguments: [old])
+            }
+        }
     }
 
     func favoriteChannelIDs() throws -> Set<String> {

@@ -150,7 +150,7 @@ final class ScannerTests: XCTestCase {
     }
 
     private func withParserFixture(_ data: Data, extension suffix: String, body: (URL) throws -> Void) throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let directory = TestTemporaryDirectory.root.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appendingPathComponent("parser-fixture").appendingPathExtension(suffix)
@@ -1009,14 +1009,14 @@ final class ScannerTests: XCTestCase {
     }
 
     private func makeTemporaryDirectory() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemporaryDirectory.root
             .appendingPathComponent("MoonlightScannerTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 
     private func makeTemporaryDatabase() -> DatabaseManager {
-        let directory = FileManager.default.temporaryDirectory
+        let directory = TestTemporaryDirectory.root
             .appendingPathComponent("MoonlightScannerDB-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return try! DatabaseManager(path: directory.appendingPathComponent("library.sqlite").path)

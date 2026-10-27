@@ -8,7 +8,7 @@ final class PlaylistImportServiceTests: XCTestCase {
     private var manager: DatabaseManager!
 
     override func setUp() async throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("MoonlightPlaylistImportTests-\(UUID().uuidString)", isDirectory: true)
+        directory = TestTemporaryDirectory.root.appendingPathComponent("MoonlightPlaylistImportTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         manager = try DatabaseManager(path: directory.appendingPathComponent("library.sqlite").path)
     }

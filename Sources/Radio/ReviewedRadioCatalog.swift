@@ -33,10 +33,15 @@ final class ReviewedRadioCatalog: @unchecked Sendable {
         try read { db in
             let version = try String.fetchOne(db, sql: "SELECT value FROM catalog_metadata WHERE key='schema_version'")
             let status = try String.fetchOne(db, sql: "SELECT value FROM catalog_metadata WHERE key='status'")
+            let channelCount = try Int.fetchOne(db, sql: "SELECT CAST(value AS INTEGER) FROM catalog_metadata WHERE key='channel_count'")
+            let streamCount = try Int.fetchOne(db, sql: "SELECT CAST(value AS INTEGER) FROM catalog_metadata WHERE key='stream_count'")
             guard version == "1", status == "reviewed-healthy-snapshot",
-                  try Int.fetchOne(db, sql: "SELECT count(*) FROM channels") == 42_630,
-                  try Int.fetchOne(db, sql: "SELECT count(*) FROM streams") == 44_726,
-                  try Int.fetchOne(db, sql: "SELECT count(*) FROM channel_search") == 42_630,
+                  let channelCount, channelCount > 40_000,
+                  let streamCount, streamCount == 44_726,
+                  try Int.fetchOne(db, sql: "SELECT count(*) FROM channels") == channelCount,
+                  try Int.fetchOne(db, sql: "SELECT count(*) FROM streams") == streamCount,
+                  try Int.fetchOne(db, sql: "SELECT count(*) FROM channel_search") == channelCount,
+                  (try Int.fetchOne(db, sql: "SELECT count(*) FROM channel_genres WHERE genre='classical'") ?? 0) > 0,
                   try String.fetchOne(db, sql: "PRAGMA quick_check") == "ok" else {
                 throw RadioCatalogError.invalidCatalog
             }
@@ -48,7 +53,7 @@ final class ReviewedRadioCatalog: @unchecked Sendable {
     }
 
     func fetchStations(
-        search: String? = nil, countryCode: String? = nil,
+        search: String? = nil, genre: String? = nil, countryCode: String? = nil,
         minimumBitrate: Int = 0, popularOnly: Bool = false, limit: Int = 200
     ) throws -> [RadioStation] {
         var filters = ["1=1"]
@@ -70,6 +75,10 @@ final class ReviewedRadioCatalog: @unchecked Sendable {
             filters.append("c.country_code = ?")
             arguments.append(countryCode.uppercased())
         }
+        if let genre, !genre.isEmpty {
+            filters.append("EXISTS (SELECT 1 FROM channel_genres g WHERE g.channel_id=c.id AND g.genre=?)")
+            arguments.append(genre)
+        }
         if minimumBitrate > 0 {
             filters.append("EXISTS (SELECT 1 FROM streams quality WHERE quality.channel_id=c.id AND quality.bitrate_kbps>=?)")
             arguments.append(minimumBitrate)
@@ -83,7 +92,15 @@ final class ReviewedRadioCatalog: @unchecked Sendable {
 
     func fetchStation(channelID: String) throws -> RadioStation? {
         try read { db in
-            try Self.fetchRows(db, whereSQL: "c.id=?", arguments: [channelID, 1]).first
+            let canonical = try String.fetchOne(db, sql: "SELECT channel_id FROM channel_aliases WHERE old_id=?", arguments: [channelID]) ?? channelID
+            return try Self.fetchRows(db, whereSQL: "c.id=?", arguments: [canonical, 1]).first
+        }
+    }
+
+    func channelAliases() throws -> [String: String] {
+        try read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT old_id,channel_id FROM channel_aliases")
+            return Dictionary(uniqueKeysWithValues: rows.map { ($0["old_id"] as String, $0["channel_id"] as String) })
         }
     }
 

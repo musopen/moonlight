@@ -7,7 +7,7 @@ final class MobileReleaseBlockerTests: XCTestCase {
     private var temporaryDirectory: URL!
 
     override func setUp() async throws {
-        temporaryDirectory = FileManager.default.temporaryDirectory
+        temporaryDirectory = TestTemporaryDirectory.root
             .appendingPathComponent("MoonlightMobileReleaseBlockerTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
     }

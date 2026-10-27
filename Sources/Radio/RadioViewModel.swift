@@ -223,11 +223,12 @@ final class RadioViewModel: ObservableObject {
             do {
                 let result = try await Task.detached(priority: .userInitiated) {
                     try catalog.fetchStations(
-                        search: search.isEmpty ? selectedTag : search,
+                        search: search.isEmpty ? nil : search,
+                        genre: search.isEmpty ? selectedTag : nil,
                         countryCode: countryCode.isEmpty ? nil : countryCode,
                         minimumBitrate: bitrate,
                         popularOnly: popularOnly,
-                        limit: 200
+                        limit: selectedTag == nil ? 200 : 500
                     )
                 }.value
                 guard !Task.isCancelled, let self else { return }

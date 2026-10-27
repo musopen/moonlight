@@ -176,11 +176,15 @@ private struct RadioBrowseView: View {
 
     private var genresSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            RadioSectionLabel(title: "Browse countries")
+            RadioSectionLabel(title: "Browse stations")
 
             LazyVGrid(columns: columns, spacing: 10) {
                 RadioGenreTile(label: "All Stations", muted: true) {
                     Task { await model.openResults(tag: nil, label: "All Stations") }
+                }
+
+                RadioGenreTile(label: "Classical", muted: false) {
+                    Task { await model.openResults(tag: "classical", label: "Classical") }
                 }
 
                 ForEach(model.countries.prefix(18)) { country in
@@ -515,7 +519,6 @@ private struct RadioStationHeaderRow: View {
             Text("Station").frame(maxWidth: .infinity, alignment: .leading)
             Text("Popular").frame(width: 60, alignment: .center)
             Text("Country").frame(width: 90, alignment: .leading)
-            Text("Genre").frame(width: 150, alignment: .leading)
             Text("Quality").frame(width: 92, alignment: .leading)
             Color.clear.frame(width: 28)
         }
@@ -578,11 +581,6 @@ private struct RadioStationRow: View {
                 Text(station.countryCode ?? station.country ?? "Unknown")
                     .frame(width: 90, alignment: .leading)
                     .foregroundStyle(Color.textSecondary)
-                    .lineLimit(1)
-
-                Text(station.tags.prefix(2).joined(separator: ", "))
-                    .frame(width: 150, alignment: .leading)
-                    .foregroundStyle(Color.textTertiary)
                     .lineLimit(1)
 
                 Text(qualityText)
