@@ -43,3 +43,36 @@ final class HousekeepingTests: XCTestCase {
         }
     }
 }
+
+
+@MainActor
+final class InteractionDiagnosticsTests: XCTestCase {
+    func testRecordingIsOptInAndUsesSessionTokens() {
+        let recorder = InteractionDiagnostics()
+        recorder.record("ignored")
+        XCTAssertFalse(recorder.hasEvents)
+        recorder.beginRecording()
+        recorder.record("album.tap", albumID: 987654321)
+        XCTAssertTrue(recorder.report.contains("album.tap album=1"))
+        XCTAssertFalse(recorder.report.contains("987654321"))
+        recorder.stop()
+        recorder.record("after.stop")
+        XCTAssertFalse(recorder.report.contains("after.stop"))
+        recorder.beginRecording()
+        XCTAssertFalse(recorder.report.contains("album.tap"))
+        recorder.record("new.album", albumID: 123456789)
+        XCTAssertTrue(recorder.report.contains("new.album album=1"))
+        recorder.stop()
+    }
+
+    func testRecordingRetainsOnlyLatestEvents() {
+        let recorder = InteractionDiagnostics()
+        recorder.beginRecording()
+        for index in 0..<4100 { recorder.record("event.\(index)") }
+        let report = recorder.report
+        XCTAssertTrue(report.contains("Earlier events discarded: 101"))
+        XCTAssertFalse(report.contains(" event.0\n"))
+        XCTAssertTrue(report.contains(" event.4099\n"))
+        recorder.stop()
+    }
+}

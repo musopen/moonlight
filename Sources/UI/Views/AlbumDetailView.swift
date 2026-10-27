@@ -111,6 +111,7 @@ struct AlbumDetailView: View {
             }
             .background(Color.bgContent)
         }
+        .onAppear { InteractionDiagnostics.shared.record("albumDetail.appeared", albumID: album.id) }
         .task { await loadTracks() }
         .task { await loadAccentColor() }
         .onChange(of: appState.libraryVersion) { _, _ in
