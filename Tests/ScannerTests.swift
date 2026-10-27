@@ -490,6 +490,21 @@ final class ScannerTests: XCTestCase {
         XCTAssertNil(MetadataTagFileWriter.artworkImage(in: url))
     }
 
+    func testWAVMetadataExtractionRetainsEmbeddedArtwork() async throws {
+        let root = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("embedded.wav")
+        let imageURL = root.appendingPathComponent("embedded-cover.jpg")
+        try makeMinimalWAVData().write(to: url)
+        try makeJPEGData(width: 120, height: 120).write(to: imageURL)
+        try MetadataTagFileWriter.apply(TagEditPatch(artwork: .replace(imageURL)), to: url)
+        try FileManager.default.removeItem(at: imageURL)
+
+        let metadata = try await MetadataExtractor.extract(from: url)
+        XCTAssertNotNil(metadata.artworkData)
+        XCTAssertNil(ArtworkExtractor.folderArtwork(for: url))
+    }
+
     func testFolderArtworkFindsCaseInsensitiveTrackFolderImage() throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -954,7 +969,14 @@ final class ScannerTests: XCTestCase {
             try db.execute(sql: "UPDATE tracks SET artwork_id = ? WHERE file_url = ?", arguments: [db.lastInsertedRowID, track.absoluteString])
         }
 
-        _ = await LibraryScanner(db: db).scan(folderURL: root, mode: .fullRebuild, trigger: .manual) { _ in }
+        let fileMetadata = try await MetadataExtractor.extract(from: track)
+        XCTAssertNil(fileMetadata.artworkData)
+        XCTAssertNil(ArtworkExtractor.folderArtwork(for: track))
+        let rebuilt = await LibraryScanner(db: db).scan(folderURL: root, mode: .fullRebuild, trigger: .manual) { _ in }
+        let scanErrors = try db.read { db in try String.fetchAll(db, sql: "SELECT reason FROM scan_errors") }
+        XCTAssertNil(rebuilt?.failureMessage)
+        XCTAssertEqual(rebuilt?.errorCount, 0, scanErrors.joined(separator: "\n"))
+        XCTAssertEqual(rebuilt?.processedFiles, 1)
         let artworkId = try db.read { db in
             try Int64.fetchOne(db, sql: "SELECT artwork_id FROM tracks WHERE file_url = ?", arguments: [track.absoluteString])
         }

@@ -45,9 +45,7 @@ enum MetadataExtractor {
            let fileDesc = try? await MetaAudioFileDescription(parsing: url) {
             apply(tags: fileDesc.tagProperties.tags, to: &meta)
             apply(audioFormat: fileDesc.audioFormat, to: &meta)
-            if let cgImage = fileDesc.imageDescription.cgImage {
-                meta.artworkData = cgImageToJPEG(cgImage)
-            }
+            // Its image description may contain a Finder icon instead of embedded artwork.
         } else if let tagProperties = try? TagProperties(url: url) {
             apply(tags: tagProperties.tags, to: &meta)
             apply(audioFormat: tagProperties.audioProperties, to: &meta)
