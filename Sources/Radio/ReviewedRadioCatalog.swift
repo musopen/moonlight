@@ -120,8 +120,12 @@ final class ReviewedRadioCatalog: @unchecked Sendable {
     private static func fetchRows(_ db: Database, whereSQL: String, arguments: StatementArguments) throws -> [RadioStation] {
         let rows = try Row.fetchAll(db, sql: """
             SELECT c.*, s.stream_url, s.codec, s.bitrate_kbps, s.stationuuid,
-                   (SELECT group_concat(alt.stream_url, char(31)) FROM streams alt
-                    WHERE alt.channel_id=c.id AND alt.id<>s.id) AS alternate_urls
+                   (SELECT group_concat(stream_url, char(31)) FROM (
+                       SELECT alt.stream_url FROM streams alt
+                       WHERE alt.channel_id=c.id AND alt.stream_url<>s.stream_url
+                       GROUP BY alt.stream_url
+                       ORDER BY max(COALESCE(alt.bitrate_kbps,0)) DESC, alt.stream_url
+                   )) AS alternate_urls
             FROM channels c JOIN streams s ON s.channel_id=c.id AND s.is_default=1
             WHERE \(whereSQL)
             ORDER BY c.is_popular DESC, c.display_name COLLATE NOCASE LIMIT ?

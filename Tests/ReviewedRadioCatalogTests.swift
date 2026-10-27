@@ -72,6 +72,8 @@ final class ReviewedRadioCatalogTests: XCTestCase {
         XCTAssertTrue(classical.contains { $0.name == "Classic FM" && $0.countryCode == "GB" })
         XCTAssertFalse(classical.contains { ["Jazz Radio Classic Jazz", "parsa", "Tes3enat FM"].contains($0.name) })
         let classic = try XCTUnwrap(try catalog.fetchStations(search: "Classic FM UK").first)
+        XCTAssertEqual(Set(classic.alternateStreamURLs).count, classic.alternateStreamURLs.count)
+        XCTAssertFalse(classic.alternateStreamURLs.contains(classic.streamURL))
         try catalog.read { db in
             let best = try Int.fetchOne(db, sql: "SELECT max(bitrate_kbps) FROM streams WHERE channel_id=?", arguments: [classic.channelID])
             XCTAssertEqual(classic.bitrate, best)
@@ -91,12 +93,16 @@ final class ReviewedRadioCatalogTests: XCTestCase {
         let favoriteDB = try DatabaseQueue(path: directory.appendingPathComponent("radio-user-state.sqlite").path)
         try favoriteDB.write { db in
             try db.execute(sql: "INSERT INTO favorites(channel_id,stationuuid,added_at) VALUES (?,?,?)", arguments: [old, "old-station", Date(timeIntervalSince1970: 100)])
+            try db.execute(sql: "INSERT INTO favorites(channel_id,stationuuid,added_at) VALUES (?,?,?)", arguments: [canonical, "new-station", Date(timeIntervalSince1970: 200)])
         }
         _ = existing
         let migrated = try RadioUserState(catalog: catalog, directory: directory)
         XCTAssertEqual(try migrated.favoriteChannelIDs(), Set([canonical]))
         XCTAssertEqual(try migrated.favoriteStations().first?.channelID, canonical)
         XCTAssertEqual(try catalog.fetchStation(channelID: old)?.channelID, canonical)
+        try favoriteDB.read { db in
+            XCTAssertEqual(try Date.fetchOne(db, sql: "SELECT added_at FROM favorites WHERE channel_id=?", arguments: [canonical]), Date(timeIntervalSince1970: 100))
+        }
     }
 
     @MainActor
