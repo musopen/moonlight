@@ -906,6 +906,7 @@
 				C9591E77DCBD8DF21510A041 /* Sources */,
 				F579A6091F1CD0FA6AC9A1AD /* Resources */,
 				ED97DE2F501981EB59F415DF /* Frameworks */,
+				F83C14A493D3D3D3A0FBB759 /* Copy optional Firebase configuration */,
 			);
 			buildRules = (
 			);
@@ -1101,6 +1102,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		F83C14A493D3D3D3A0FBB759 /* Copy optional Firebase configuration */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy optional Firebase configuration";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "#!/bin/sh\n# Bundles the optional local Firebase configuration without adding it to the project.\n# Remove an earlier bundled copy when the local configuration is absent.\nset -eu\n\nsource_plist=\"${SRCROOT}/Sources/App/GoogleService-Info.plist\"\nbundled_plist=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleService-Info.plist\"\n\nif [ -f \"$source_plist\" ]; then\n    /usr/bin/plutil -lint \"$source_plist\" >/dev/null\n    /bin/mkdir -p \"$(/usr/bin/dirname \"$bundled_plist\")\"\n    /usr/bin/install -m 644 \"$source_plist\" \"$bundled_plist\"\nelse\n    /bin/rm -f \"$bundled_plist\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		4E71DCBFB19D1D707344FA1C /* Sources */ = {
@@ -1306,6 +1330,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = "$(MOONLIGHT_DEVELOPMENT_TEAM)";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Development;
 				INFOPLIST_FILE = Sources/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1334,6 +1359,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEVELOPMENT_TEAM = "$(MOONLIGHT_DEVELOPMENT_TEAM)";
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ICLOUD_CONTAINER_ENVIRONMENT = Production;
 				INFOPLIST_FILE = Sources/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

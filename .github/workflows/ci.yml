@@ -39,14 +39,15 @@ jobs:
       - name: Check Firebase configuration is not committed
         # Official releases install the real GoogleService-Info.plist from the
         # team's secret store. It must never be committed, and the committed
-        # Xcode project must not reference it, so builds without it keep working.
+        # Xcode project must not add it as a resource. An optional build step
+        # copies it into the app only when it is available locally.
         run: |
           if git ls-files --error-unmatch Sources/App/GoogleService-Info.plist >/dev/null 2>&1; then
             echo "::error::Sources/App/GoogleService-Info.plist must not be committed."
             exit 1
           fi
-          if grep -q 'GoogleService-Info.plist' Moonlight.xcodeproj/project.pbxproj; then
-            echo "::error::Moonlight.xcodeproj references GoogleService-Info.plist. Run xcodegen generate without the file before committing."
+          if grep -Eq 'GoogleService-Info[.]plist (in Resources|\*/ = \{isa = PBXFileReference)' Moonlight.xcodeproj/project.pbxproj; then
+            echo "::error::Moonlight.xcodeproj adds GoogleService-Info.plist as a resource. Exclude it from project sources and run xcodegen generate."
             exit 1
           fi
 

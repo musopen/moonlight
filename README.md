@@ -120,6 +120,9 @@ xcodebuild test -project Moonlight.xcodeproj -scheme Moonlight -destination "pla
 - **Feedback form:** off unless you set your own endpoint; copy
   `Config/Feedback.local.example.xcconfig` to `Config/Feedback.local.xcconfig`.
 - **Analytics:** builds without a `GoogleService-Info.plist` send no analytics.
+  To enable it, place your configuration in `Sources/App/GoogleService-Info.plist`.
+  Git ignores this file. A build step copies it into the app when present, so
+  adding or removing it does not require regenerating the Xcode project.
 
 ## Contributing
 

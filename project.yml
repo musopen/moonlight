@@ -41,13 +41,17 @@ targets:
       - path: Sources
         excludes:
           - App/GoogleService-Info.example.plist
+          - App/GoogleService-Info.plist
           - Mobile
           - Radio/Resources
       - path: Sources/Radio/Resources/radio-catalog.sqlite
         buildPhase: resources
-      # When the ignored GoogleService-Info.plist is installed before XcodeGen
-      # runs, it is automatically added to Copy Bundle Resources. Its example
-      # file above is excluded so it can never be bundled accidentally.
+    postBuildScripts:
+      - name: Copy optional Firebase configuration
+        path: Config/copy-firebase-config.sh
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/GoogleService-Info.plist
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(MOONLIGHT_BUNDLE_ID)
@@ -58,6 +62,8 @@ targets:
         PRODUCT_NAME: Moonlight
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
+        # The optional local config cannot be declared as a required script input.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
         OTHER_LDFLAGS:
           - $(inherited)
           - -ObjC
