@@ -107,6 +107,20 @@ enum LibraryBrowseQuery {
     }
 
 #if os(macOS)
+    static func albums(composedBy composer: String, in db: Database) throws -> [Album] {
+        try Album.fetchAll(db, sql: """
+            SELECT albums.*
+            FROM albums
+            WHERE EXISTS (
+                SELECT 1 FROM tracks
+                WHERE tracks.album_id = albums.id
+                  AND tracks.composer = ?
+                  AND \(LibraryTrackQuery.catalogPredicate(tableAlias: "tracks"))
+            )
+            ORDER BY albums.title COLLATE NOCASE, albums.album_artist COLLATE NOCASE, albums.id
+        """, arguments: [composer])
+    }
+
     static func favoriteTracks(sortedBy sortOrder: SongsSortOrder, in db: Database) throws -> [Track] {
         try Track.fetchAll(
             db,

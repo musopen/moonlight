@@ -418,6 +418,42 @@ final class DatabaseTests: XCTestCase {
         }
     }
 
+    func testComposerAlbumsIncludeMixedAlbumsOnceAndExcludeSyncOnlyMatches() throws {
+        try db.write { database in
+            for (index, title) in ["Zebra Recital", "alpha Collection", "Other Composer", "Sync Match Only"].enumerated() {
+                var album = Album(title: title)
+                try album.insert(database)
+                let albumID = try XCTUnwrap(album.id)
+                let composers: [String]
+                switch index {
+                case 0: composers = ["Bach", "Bach"]
+                case 1: composers = ["Mozart", "Bach"]
+                case 2: composers = ["Mozart"]
+                default: composers = ["Mozart", "Bach"]
+                }
+                for (trackIndex, composer) in composers.enumerated() {
+                    let isStub = index == 3 && composer == "Bach"
+                    var track = Track(
+                        fileURL: isStub ? "moonlight-unavailable://bach" : "file:///tmp/composer-\(index)-\(trackIndex).flac",
+                        title: "Movement \(trackIndex + 1)",
+                        album: title,
+                        composer: composer,
+                        dateAdded: Date(),
+                        albumId: albumID
+                    )
+                    try track.insert(database)
+                }
+            }
+        }
+
+        let albums = try db.read { try LibraryBrowseQuery.albums(composedBy: "Bach", in: $0) }
+        XCTAssertEqual(albums.map(\.title), ["alpha Collection", "Zebra Recital"])
+        XCTAssertTrue(try db.read { try LibraryBrowseQuery.albums(composedBy: "Unknown", in: $0) }.isEmpty)
+        let tracks = try db.read { try LibraryBrowseQuery.tracks(composedBy: "Bach", in: $0) }
+        XCTAssertEqual(tracks.count, 3)
+        XCTAssertTrue(tracks.allSatisfy { $0.composer == "Bach" && !$0.isSyncOnlyPlaceholder })
+    }
+
     func testSyncStubsStayOutOfLibraryBrowseQueriesButRemainInManualPlaylists() async throws {
         let localAlbum = "Local Album \(UUID().uuidString)"
         let localTrackID = try insertTrack(
