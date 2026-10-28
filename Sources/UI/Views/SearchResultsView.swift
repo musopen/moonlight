@@ -1,8 +1,9 @@
 // SearchResultsView.swift
 //
 // The quick search pop-up. As the user types, matching albums and songs appear in one list that
-// can be moved through with the arrow keys and opened or played with Return. It also contains
-// the search rules that decide which albums and songs match.
+// can be moved through with the arrow keys and opened or played with Return. Searches wait for
+// a short typing pause and read the database in the background, publishing only current results.
+// Clearing the text leaves the pop-up open until it is dismissed.
 
 import SwiftUI
 import AppKit
@@ -115,21 +116,92 @@ enum SearchResultsQuery {
     }
 }
 
+struct MusicSearchResults {
+    var albums: [Album] = []
+    var tracks: [Track] = []
+
+    static func fetch(_ text: String, from database: DatabaseManager) async throws -> Self {
+        guard let query = MusicSearchQuery(text) else { return Self() }
+        // GRDB schedules this read on its database queue without blocking the UI.
+        return try await database.dbQueue.read { db in
+            try Self(
+                albums: SearchResultsQuery.albums(matching: query, in: db),
+                tracks: SearchResultsQuery.tracks(matching: query, in: db)
+            )
+        }
+    }
+}
+
+@MainActor
+final class MusicSearchModel: ObservableObject {
+    typealias Search = @Sendable (String, DatabaseManager) async throws -> MusicSearchResults
+
+    @Published private(set) var results = MusicSearchResults()
+    @Published private(set) var isSearching = false
+
+    private let search: Search
+    private var searchTask: Task<Void, Never>?
+    private var requestID = UUID()
+
+    init(search: @escaping Search = { try await MusicSearchResults.fetch($0, from: $1) }) {
+        self.search = search
+    }
+
+    deinit {
+        searchTask?.cancel()
+    }
+
+    func update(_ text: String, database: DatabaseManager) {
+        cancel()
+        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard MusicSearchQuery(query) != nil else { return }
+
+        isSearching = true
+        let currentRequestID = requestID
+        let search = self.search
+        searchTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+                try Task.checkCancellation()
+                let results = try await search(query, database)
+                guard !Task.isCancelled, let self, self.requestID == currentRequestID else { return }
+                self.results = results
+                self.isSearching = false
+                self.searchTask = nil
+            } catch {
+                guard !Task.isCancelled, let self, self.requestID == currentRequestID else { return }
+                self.isSearching = false
+                self.searchTask = nil
+            }
+        }
+    }
+
+    func cancel() {
+        requestID = UUID()
+        searchTask?.cancel()
+        searchTask = nil
+        results = MusicSearchResults()
+        isSearching = false
+    }
+}
+
 struct SearchResultsView: View {
     let query: String
     var onDismiss: (() -> Void)? = nil
 
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var controller: PlaybackController
-    @State private var albums: [Album] = []
-    @State private var tracks: [Track] = []
+    @StateObject private var searchModel = MusicSearchModel()
     @State private var selectedID: String?
     @State private var hoveredID: String?
     @State private var scrollTargetID: String?
 
     private var trimmedQuery: String {
-        appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private var albums: [Album] { searchModel.results.albums }
+    private var tracks: [Track] { searchModel.results.tracks }
 
     private var results: [SpotlightResult] {
         albums.map(SpotlightResult.album) + tracks.map(SpotlightResult.track)
@@ -160,10 +232,20 @@ struct SearchResultsView: View {
                 .strokeBorder(Color.borderMedium, lineWidth: 0.5)
         )
         .padding(1)
-        .task(id: trimmedQuery) { await search() }
-        .onChange(of: appState.libraryVersion) { _, _ in
-            Task { await search() }
+        .onChange(of: trimmedQuery, initial: true) { _, value in
+            selectedID = nil
+            hoveredID = nil
+            scrollTargetID = nil
+            searchModel.update(value, database: appState.db)
         }
+        .onChange(of: appState.libraryVersion) { _, _ in
+            guard appState.isSearchPresented else { return }
+            searchModel.update(trimmedQuery, database: appState.db)
+        }
+        .onChange(of: appState.isSearchPresented) { _, isPresented in
+            if !isPresented { searchModel.cancel() }
+        }
+        .onDisappear { searchModel.cancel() }
         .onChange(of: results.map(\.id)) { _, ids in
             if selectedID == nil || !ids.contains(selectedID ?? "") {
                 selectedID = ids.first
@@ -197,11 +279,11 @@ struct SearchResultsView: View {
                 .font(.system(size: 22))
                 .foregroundStyle(Color.textQuaternary)
 
-            Text(trimmedQuery.isEmpty ? "Start typing" : "No results")
+            Text(trimmedQuery.isEmpty ? "Start typing" : (searchModel.isSearching ? "Searching…" : "No results"))
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color.textSecondary)
 
-            if !trimmedQuery.isEmpty {
+            if !trimmedQuery.isEmpty && !searchModel.isSearching {
                 Text("No albums or songs matched \"\(trimmedQuery)\".")
                     .font(.system(size: 11.5))
                     .foregroundStyle(Color.textTertiary)
@@ -293,31 +375,6 @@ struct SearchResultsView: View {
         let albumText = albums.count == 1 ? "1 album" : "\(albums.count) albums"
         let songText = tracks.count == 1 ? "1 song" : "\(tracks.count) songs"
         return "\(albumText), \(songText)"
-    }
-
-    private func search() async {
-        guard !trimmedQuery.isEmpty else {
-            albums = []
-            tracks = []
-            selectedID = nil
-            return
-        }
-
-        guard let searchQuery = MusicSearchQuery(trimmedQuery) else {
-            albums = []
-            tracks = []
-            selectedID = nil
-            return
-        }
-
-        albums = (try? appState.db.read { try SearchResultsQuery.albums(matching: searchQuery, in: $0) }) ?? []
-
-        tracks = (try? appState.db.read { try SearchResultsQuery.tracks(matching: searchQuery, in: $0) }) ?? []
-
-        let ids = results.map(\.id)
-        if selectedID == nil || !ids.contains(selectedID ?? "") {
-            selectedID = ids.first
-        }
     }
 
     private func selectPrevious() {

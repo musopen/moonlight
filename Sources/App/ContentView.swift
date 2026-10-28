@@ -174,7 +174,7 @@ struct ContentView: View {
     }
 
     private var shouldExitPlaybackSurfaceForEscape: Bool {
-        appState.windowMode == .miniPlayer || appState.selectedSidebarItem == .nowPlaying
+        appState.isSearchPresented || appState.windowMode == .miniPlayer || appState.selectedSidebarItem == .nowPlaying
     }
 
     private var showsWindowButtons: Bool {
@@ -208,16 +208,16 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .overlay {
-            if !appState.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if appState.isSearchPresented {
                 ZStack {
                     Color.black.opacity(0.38)
                         .ignoresSafeArea()
                         .onTapGesture {
-                            appState.searchText = ""
+                            appState.dismissSearch()
                         }
 
                     SearchResultsView(query: appState.searchText) {
-                        appState.searchText = ""
+                        appState.dismissSearch()
                     }
                     .frame(width: 760, height: 520)
                     .shadow(color: .black.opacity(0.34), radius: 30, y: 18)

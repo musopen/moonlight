@@ -72,7 +72,14 @@ final class AppState: ObservableObject {
     @Published var isScanning = false
     @Published var scanProgress: ScanProgress = .idle
     @Published var hasLibrary = false
-    @Published var searchText = ""
+    @Published var searchText = "" {
+        didSet {
+            if !isSearchPresented && !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                isSearchPresented = true
+            }
+        }
+    }
+    @Published private(set) var isSearchPresented = false
     @Published var playlists: [Playlist] = []
     @Published var folders: [(url: URL, id: Int64)] = []
     // Incremented whenever user-library metadata changes so views can reload.
@@ -880,8 +887,13 @@ final class AppState: ObservableObject {
 
     // MARK: - Navigation
 
-    func showNowPlaying() {
+    func dismissSearch() {
+        isSearchPresented = false
         searchText = ""
+    }
+
+    func showNowPlaying() {
+        dismissSearch()
         presentedAlbum = nil
         presentedAlbumTrackID = nil
         if selectedSidebarItem == .nowPlaying {
@@ -894,7 +906,7 @@ final class AppState: ObservableObject {
 
     func exitNowPlaying() {
         guard selectedSidebarItem == .nowPlaying else { return }
-        searchText = ""
+        dismissSearch()
         presentedAlbum = nil
         presentedAlbumTrackID = nil
         selectedSidebarItem = sidebarItemBeforeNowPlaying ?? .albums
@@ -916,7 +928,7 @@ final class AppState: ObservableObject {
               let album = try? db.read({ db in try Album.fetchOne(db, key: albumId) })
         else { return }
 
-        searchText = ""
+        dismissSearch()
         presentedAlbumTrackID = trackID
         selectedSidebarItem = .albums
         presentedAlbum = album
@@ -988,6 +1000,7 @@ final class AppState: ObservableObject {
             selectedSidebarItem = .radio
             return
         }
+        dismissSearch()
         windowMode = .miniPlayer
     }
 
@@ -1004,6 +1017,10 @@ final class AppState: ObservableObject {
     }
 
     func exitPlaybackSurface() {
+        if isSearchPresented {
+            dismissSearch()
+            return
+        }
         if windowMode == .miniPlayer {
             exitMiniPlayer()
         } else {

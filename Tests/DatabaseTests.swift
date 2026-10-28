@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import XCTest
 import GRDB
 @testable import Moonlight
@@ -640,6 +641,154 @@ final class DatabaseTests: XCTestCase {
         XCTAssertEqual(try searchTrackTitles("op. 67 \"kleiber\""), ["Symphony No. 5 in C Minor, Op. 67: I. Allegro"])
     }
 
+    @MainActor
+    func testMusicSearchDebouncesRapidEditsFor250Milliseconds() async throws {
+        let searched = expectation(description: "Latest query searched")
+        let started = ContinuousClock.now
+        let model = MusicSearchModel { query, _ in
+            XCTAssertEqual(query, "bach")
+            XCTAssertGreaterThanOrEqual(started.duration(to: .now), .milliseconds(250))
+            searched.fulfill()
+            return MusicSearchResults()
+        }
+        defer { model.cancel() }
+
+        model.update("b", database: db)
+        await Task.yield()
+        model.update("ba", database: db)
+        await Task.yield()
+        model.update("bach", database: db)
+
+        await fulfillment(of: [searched], timeout: 3)
+    }
+
+    @MainActor
+    func testMusicSearchIgnoresAnOlderSearchThatFinishesLast() async throws {
+        let oldStarted = expectation(description: "Old search started")
+        let newStarted = expectation(description: "New search started")
+        let newPublished = expectation(description: "New results published")
+        let stalePublished = expectation(description: "Old results must not replace new results")
+        stalePublished.isInverted = true
+        let searches = ControlledMusicSearch()
+        let model = MusicSearchModel { query, _ in
+            await searches.perform(query, started: query == "bach" ? oldStarted : newStarted)
+        }
+        let observation = model.$results.sink { results in
+            if results.albums.first?.title == "New" { newPublished.fulfill() }
+            if results.albums.first?.title == "Old" { stalePublished.fulfill() }
+        }
+        defer { observation.cancel(); model.cancel() }
+
+        model.update("bach", database: db)
+        await fulfillment(of: [oldStarted], timeout: 3)
+        model.update("mozart", database: db)
+        await fulfillment(of: [newStarted], timeout: 3)
+        await searches.complete("mozart", title: "New")
+        await fulfillment(of: [newPublished], timeout: 3)
+        await searches.complete("bach", title: "Old")
+
+        await fulfillment(of: [stalePublished], timeout: 0.15)
+        XCTAssertEqual(model.results.albums.first?.title, "New")
+    }
+
+    @MainActor
+    func testClearingOrDismissingSearchDiscardsInFlightResults() async throws {
+        for dismiss in [false, true] {
+            let searchStarted = expectation(description: "Search started")
+            let stalePublished = expectation(description: "Cleared search must stay empty")
+            stalePublished.isInverted = true
+            let searches = ControlledMusicSearch()
+            let model = MusicSearchModel { query, _ in
+                await searches.perform(query, started: searchStarted)
+            }
+            let observation = model.$results.sink { results in
+                if !results.albums.isEmpty { stalePublished.fulfill() }
+            }
+
+            model.update("bach", database: db)
+            await fulfillment(of: [searchStarted], timeout: 3)
+            if dismiss {
+                model.cancel()
+            } else {
+                model.update("", database: db)
+            }
+            XCTAssertFalse(model.isSearching)
+            XCTAssertTrue(model.results.albums.isEmpty)
+            await searches.complete("bach", title: "Late")
+            await fulfillment(of: [stalePublished], timeout: 0.15)
+            observation.cancel()
+        }
+    }
+
+    @MainActor
+    func testClearingSearchBeforeDebounceDoesNotRunQuery() async {
+        let searched = expectation(description: "Cleared query must not run")
+        searched.isInverted = true
+        let model = MusicSearchModel { _, _ in
+            searched.fulfill()
+            return MusicSearchResults()
+        }
+        model.update("bach", database: db)
+        await Task.yield()
+        model.update("", database: db)
+        await fulfillment(of: [searched], timeout: 0.35)
+        XCTAssertFalse(model.isSearching)
+    }
+
+    @MainActor
+    func testMusicSearchDoesNotBlockUIWhileDatabaseIsBusy() async throws {
+        try seedSearchTracks()
+        await LibraryScanner(db: db).rebuildDerivedData()
+
+        let databaseHeld = expectation(description: "Database queue occupied")
+        let releaseDatabase = DispatchSemaphore(value: 0)
+        db.dbQueue.asyncRead { result in
+            if case .failure(let error) = result { XCTFail("\(error)") }
+            databaseHeld.fulfill()
+            XCTAssertEqual(releaseDatabase.wait(timeout: .now() + 3), .success,
+                           "UI thread could not release the busy database")
+        }
+        await fulfillment(of: [databaseHeld], timeout: 3)
+        let uiTask = Task { @MainActor in
+            try await Task.sleep(for: .milliseconds(100))
+            releaseDatabase.signal()
+        }
+        defer { releaseDatabase.signal(); uiTask.cancel() }
+
+        let results = try await MusicSearchResults.fetch("op. 67 kleiber", from: db)
+        XCTAssertEqual(results.tracks.map(\.title), ["Symphony No. 5 in C Minor, Op. 67: I. Allegro"])
+    }
+
+    @MainActor
+    func testSearchPopupStaysOpenAfterClearingAndCanReopenAfterDismissal() {
+        let appState = AppState(db: db)
+        XCTAssertFalse(appState.isSearchPresented)
+        appState.searchText = "bach"
+        XCTAssertTrue(appState.isSearchPresented)
+        appState.searchText = ""
+        XCTAssertTrue(appState.isSearchPresented)
+        appState.searchText = "   "
+        XCTAssertTrue(appState.isSearchPresented)
+        appState.dismissSearch()
+        XCTAssertFalse(appState.isSearchPresented)
+        XCTAssertEqual(appState.searchText, "")
+        appState.searchText = "mozart"
+        XCTAssertTrue(appState.isSearchPresented)
+    }
+
+    @MainActor
+    func testEscapeDismissesEmptySearchBeforeLeavingNowPlaying() {
+        let appState = AppState(db: db)
+        appState.showNowPlaying()
+        appState.searchText = "bach"
+        appState.searchText = ""
+        appState.exitPlaybackSurface()
+        XCTAssertFalse(appState.isSearchPresented)
+        XCTAssertEqual(appState.selectedSidebarItem, .nowPlaying)
+        appState.exitPlaybackSurface()
+        XCTAssertNotEqual(appState.selectedSidebarItem, .nowPlaying)
+    }
+
     func testAppendTrackIdsToPlaylistPreservesDropOrder() throws {
         let playlistId = try insertPlaylist(name: "Drop Order")
         let firstTrackId = try insertTrack(fileURL: "file:///tmp/\(UUID().uuidString).flac",
@@ -874,5 +1023,24 @@ final class DatabaseTests: XCTestCase {
         NSRect(x: 0, y: 0, width: width, height: height).fill()
         NSGraphicsContext.restoreGraphicsState()
         return try XCTUnwrap(rep.representation(using: .jpeg, properties: [.compressionFactor: 0.85]))
+    }
+}
+
+private actor ControlledMusicSearch {
+    private var pending: [String: CheckedContinuation<MusicSearchResults, Never>] = [:]
+
+    func perform(_ query: String, started: XCTestExpectation) async -> MusicSearchResults {
+        await withCheckedContinuation { continuation in
+            pending[query] = continuation
+            started.fulfill()
+        }
+    }
+
+    func complete(_ query: String, title: String) {
+        guard let continuation = pending.removeValue(forKey: query) else {
+            XCTFail("No pending search for \(query)")
+            return
+        }
+        continuation.resume(returning: MusicSearchResults(albums: [Album(title: title)]))
     }
 }
