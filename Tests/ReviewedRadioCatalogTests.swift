@@ -8,7 +8,8 @@ final class ReviewedRadioCatalogTests: XCTestCase {
     private var catalog: ReviewedRadioCatalog!
 
     override func setUpWithError() throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("ReviewedRadio-\(UUID().uuidString)")
+        let temporaryRoot = TestTemporaryDirectory.root
+        directory = temporaryRoot.appendingPathComponent("ReviewedRadio-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         catalog = try ReviewedRadioCatalog()
     }
@@ -28,26 +29,148 @@ final class ReviewedRadioCatalogTests: XCTestCase {
         XCTAssertNil(RadioWebURL.validated(nil))
     }
 
+    func testConfiguredTemporaryDirectoryIsUsed() throws {
+        guard let configured = ProcessInfo.processInfo.environment["MOONLIGHT_TEST_TMPDIR"] else { return }
+        XCTAssertTrue(directory.path.hasPrefix(configured + "/"))
+        XCTAssertTrue(TestTemporaryDirectory.root.resolvingSymlinksInPath().path.hasPrefix(
+            URL(fileURLWithPath: configured).resolvingSymlinksInPath().path
+        ))
+    }
+
     func testBundledCatalogIsCompleteReadableAndImmutable() throws {
         XCTAssertTrue(catalog.path.contains(".app/Contents/Resources/"))
-        XCTAssertEqual(try catalog.stationCount(), 42_630)
+        XCTAssertGreaterThan(try catalog.stationCount(), 40_000)
+        XCTAssertLessThan(try catalog.stationCount(), 42_630)
         try catalog.read { db in
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT count(*) FROM streams"), 44_726)
-            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT count(*) FROM channels WHERE is_popular=1"), 3_195)
+            XCTAssertGreaterThan(try Int.fetchOne(db, sql: "SELECT count(*) FROM channels WHERE is_popular=1") ?? 0, 3_000)
             XCTAssertEqual(try String.fetchOne(db, sql: "PRAGMA integrity_check"), "ok")
-            XCTAssertEqual(try String.fetchOne(db, sql: "SELECT value FROM catalog_metadata WHERE key='schema_version'"), "1")
+            XCTAssertEqual(try String.fetchOne(db, sql: "SELECT value FROM catalog_metadata WHERE key='schema_version'"), "2")
             XCTAssertThrowsError(try db.execute(sql: "DELETE FROM channels"))
         }
         let search = try catalog.fetchStations(search: "KUSC")
         XCTAssertFalse(search.isEmpty)
+        XCTAssertGreaterThan(try catalog.fetchCountries().count, 40)
+        let classicFM = try catalog.fetchStations(search: "Classic FM UK")
+        XCTAssertEqual(classicFM.count, 1)
+        XCTAssertEqual(classicFM.first?.countryCode, "GB")
+        XCTAssertGreaterThanOrEqual(classicFM.first?.alternateStreamURLs.count ?? 0, 1)
         XCTAssertTrue(try catalog.fetchStations(search: "Exitosa Noticias Chiclayo")
             .contains { $0.channelID == "00708bd9-bb2b-4e13-9628-a359c875ed43" })
         XCTAssertTrue(try catalog.fetchStations(search: "Voice of Korea")
             .contains { $0.name == "Pyongyang Radio FM" })
+        let count = try catalog.stationCount()
         try catalog.read { db in
-            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT count(*) FROM streams WHERE is_default=1"), 42_630)
+            XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT count(*) FROM streams WHERE is_default=1"), count)
             XCTAssertEqual(try Int.fetchOne(db, sql: "SELECT count(*) FROM streams WHERE stationuuid IS NULL OR stationuuid=''"), 0)
         }
+    }
+
+    func testClassicalBrowseExcludesMisclassifiedStationsAndKeepsBestStream() throws {
+        let classical = try catalog.fetchStations(genre: "classical", limit: 500)
+        XCTAssertGreaterThan(classical.count, 100)
+        XCTAssertTrue(classical.contains { $0.name == "Classic FM" && $0.countryCode == "GB" })
+        XCTAssertFalse(classical.contains { ["Jazz Radio Classic Jazz", "parsa", "Tes3enat FM"].contains($0.name) })
+        let classic = try XCTUnwrap(try catalog.fetchStations(search: "Classic FM UK").first)
+        XCTAssertEqual(Set(classic.alternateStreamURLs).count, classic.alternateStreamURLs.count)
+        XCTAssertFalse(classic.alternateStreamURLs.contains(classic.streamURL))
+        try catalog.read { db in
+            let best = try Int.fetchOne(db, sql: "SELECT max(bitrate_kbps) FROM streams WHERE channel_id=?", arguments: [classic.channelID])
+            XCTAssertEqual(classic.bitrate, best)
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT count(*) FROM streams s WHERE s.is_default=1
+                  AND EXISTS (SELECT 1 FROM channel_aliases a WHERE a.channel_id=s.channel_id)
+                  AND COALESCE(s.bitrate_kbps,0) < (SELECT max(COALESCE(other.bitrate_kbps,0)) FROM streams other
+                    WHERE other.channel_id=s.channel_id AND NOT EXISTS (SELECT 1 FROM stream_exclusions e WHERE e.stream_id=other.id))
+                """), 0)
+        }
+    }
+
+    func testMergedChannelAliasesPreserveExistingFavorites() throws {
+        let row = try catalog.read { db in try XCTUnwrap(Row.fetchOne(db, sql: "SELECT old_id,channel_id FROM channel_aliases LIMIT 1")) }
+        let old: String = row["old_id"]
+        let canonical: String = row["channel_id"]
+        let existing = try RadioUserState(catalog: catalog, directory: directory)
+        let favoriteDB = try DatabaseQueue(path: directory.appendingPathComponent("radio-user-state.sqlite").path)
+        try favoriteDB.write { db in
+            try db.execute(sql: "INSERT INTO favorites(channel_id,stationuuid,added_at) VALUES (?,?,?)", arguments: [old, "old-station", Date(timeIntervalSince1970: 100)])
+            try db.execute(sql: "INSERT INTO favorites(channel_id,stationuuid,added_at) VALUES (?,?,?)", arguments: [canonical, "new-station", Date(timeIntervalSince1970: 200)])
+        }
+        _ = existing
+        let migrated = try RadioUserState(catalog: catalog, directory: directory)
+        XCTAssertEqual(try migrated.favoriteChannelIDs(), Set([canonical]))
+        XCTAssertEqual(try migrated.favoriteStations().first?.channelID, canonical)
+        XCTAssertEqual(try catalog.fetchStation(channelID: old)?.channelID, canonical)
+        try favoriteDB.read { db in
+            XCTAssertEqual(try Date.fetchOne(db, sql: "SELECT added_at FROM favorites WHERE channel_id=?", arguments: [canonical]), Date(timeIntervalSince1970: 100))
+        }
+    }
+
+    func testSharedStreamReviewExcludesIncorrectMappingsAndKeepsBestEligibleStream() throws {
+        try catalog.read { db in
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT count(*) FROM (SELECT s.stream_url FROM streams s
+                WHERE NOT EXISTS (SELECT 1 FROM stream_exclusions e WHERE e.stream_id=s.id)
+                GROUP BY s.stream_url HAVING count(DISTINCT s.channel_id)>1)
+                """), 0)
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT count(*) FROM streams s JOIN stream_exclusions e ON e.stream_id=s.id WHERE s.is_default=1
+                """), 0)
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT count(*) FROM streams s WHERE s.is_default=1 AND COALESCE(s.bitrate_kbps,0) < (
+                SELECT max(COALESCE(a.bitrate_kbps,0)) FROM streams a WHERE a.channel_id=s.channel_id
+                AND NOT EXISTS (SELECT 1 FROM stream_exclusions e WHERE e.stream_id=a.id))
+                """), 0)
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT count(*) FROM channel_aliases a LEFT JOIN channels c ON c.id=a.channel_id WHERE c.id IS NULL
+                """), 0)
+        }
+        let ffn = try XCTUnwrap(try catalog.fetchStations(search: "Radio FFN - 80er").first)
+        XCTAssertTrue(ffn.streamURL.contains("ffn-80er"))
+        XCTAssertFalse(ffn.alternateStreamURLs.contains { $0.contains("peppermint") })
+        XCTAssertTrue(try catalog.fetchStations(search: "R.SA Country").isEmpty)
+        let tilburg = try XCTUnwrap(try catalog.fetchStations(search: "Omroep Tilburg New").first)
+        XCTAssertTrue(tilburg.streamURL.contains("Omroep_Tilburg_Radio"))
+        XCTAssertFalse(tilburg.streamURL.contains("tunein-ondemand"))
+    }
+
+    func testWithheldFavoriteRemainsVisibleAndCanRecoverOrBeRemoved() throws {
+        let row = try catalog.read { db in try XCTUnwrap(Row.fetchOne(db, sql: """
+            SELECT c.id,c.display_name,s.stationuuid FROM channels c JOIN streams s ON s.channel_id=c.id
+            WHERE NOT EXISTS (SELECT 1 FROM streams live WHERE live.channel_id=c.id AND live.is_default=1)
+            LIMIT 1
+            """)) }
+        let channelID: String = row["id"]
+        let uuid: String = row["stationuuid"]
+        let addedAt = Date(timeIntervalSince1970: 123)
+        _ = try RadioUserState(catalog: catalog, directory: directory)
+        let userDB = try DatabaseQueue(path: directory.appendingPathComponent("radio-user-state.sqlite").path)
+        try userDB.write { db in
+            try db.execute(sql: "INSERT INTO favorites VALUES (?,?,?)", arguments: [channelID, uuid, addedAt])
+        }
+        let state = try RadioUserState(catalog: catalog, directory: directory)
+        XCTAssertEqual(try state.favoriteChannelIDs(), Set([channelID]))
+        XCTAssertTrue(try state.favoriteStations().isEmpty)
+        let saved = try XCTUnwrap(try state.unresolvedFavorites().first)
+        XCTAssertEqual(saved.stationUUID, uuid)
+        XCTAssertEqual(saved.name, row["display_name"] as String)
+        XCTAssertEqual(saved.addedAt, addedAt)
+
+        let repairedPath = directory.appendingPathComponent("repaired.sqlite").path
+        try FileManager.default.copyItem(atPath: catalog.path, toPath: repairedPath)
+        let repairedDB = try DatabaseQueue(path: repairedPath)
+        try repairedDB.write { db in
+            let streamID = try XCTUnwrap(String.fetchOne(db, sql: "SELECT id FROM streams WHERE channel_id=? LIMIT 1", arguments: [channelID]))
+            try db.execute(sql: "DELETE FROM stream_exclusions WHERE stream_id=?", arguments: [streamID])
+            try db.execute(sql: "UPDATE streams SET is_default=1 WHERE id=?", arguments: [streamID])
+        }
+        let recovered = try RadioUserState(catalog: ReviewedRadioCatalog(path: repairedPath), directory: directory)
+        XCTAssertEqual(try recovered.favoriteStations().first?.channelID, channelID)
+        XCTAssertTrue(try recovered.unresolvedFavorites().isEmpty)
+
+        try state.removeUnresolvedFavorite(stationUUID: uuid)
+        XCTAssertTrue(try state.favoriteChannelIDs().isEmpty)
+        XCTAssertTrue(try state.unresolvedFavorites().isEmpty)
     }
 
     @MainActor
@@ -74,6 +197,19 @@ final class ReviewedRadioCatalogTests: XCTestCase {
         }
         // 83 stations only play (or could not be checked) with the label in their own address.
         XCTAssertLessThanOrEqual(tagged, 83)
+    }
+
+    func testCheckedStationLinksAvoidEmbeddedIdentifiersAndPlaylist() throws {
+        try catalog.read { db in
+            XCTAssertEqual(try Int.fetchOne(db, sql: """
+                SELECT count(*) FROM streams WHERE lower(stream_url) LIKE '%nyprbrowserid=%'
+                """), 0)
+            let kUSC = try String.fetchOne(db, sql: """
+                SELECT s.stream_url FROM channels c JOIN streams s ON s.channel_id=c.id
+                WHERE c.display_name='Classical California KUSC' AND s.is_default=1
+                """)
+            XCTAssertEqual(kUSC, "https://playerservices.streamtheworld.com/api/livestream-redirect/KUSCMP256.mp3")
+        }
     }
 
     func testMigrationCoalescesUUIDsAndPreservesUnmappedAndOffCatalogFavorites() throws {
@@ -236,7 +372,7 @@ final class ReviewedRadioCatalogTests: XCTestCase {
         try catalog.read { db in
             let channelID = try XCTUnwrap(String.fetchOne(db, sql: """
                 SELECT channel_id FROM streams
-                GROUP BY channel_id HAVING count(DISTINCT stationuuid)>=2 LIMIT 1
+                GROUP BY channel_id HAVING count(DISTINCT stationuuid)>=2 AND max(is_default)=1 LIMIT 1
             """))
             let mapped = try String.fetchAll(db, sql: """
                 SELECT DISTINCT stationuuid FROM streams WHERE channel_id=?

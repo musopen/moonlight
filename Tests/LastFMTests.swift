@@ -226,7 +226,7 @@ final class LastFMIntegrationTests: XCTestCase {
     private var temporaryDirectory: URL!
 
     override func setUp() async throws {
-        temporaryDirectory = FileManager.default.temporaryDirectory
+        temporaryDirectory = TestTemporaryDirectory.root
             .appendingPathComponent("MoonlightLastFMAuthTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
         db = try DatabaseManager(path: temporaryDirectory.appendingPathComponent("library.sqlite").path)
@@ -328,7 +328,7 @@ final class LastFMCoordinatorTests: XCTestCase {
     private var temporaryDirectory: URL!
 
     override func setUp() async throws {
-        temporaryDirectory = FileManager.default.temporaryDirectory
+        temporaryDirectory = TestTemporaryDirectory.root
             .appendingPathComponent("MoonlightLastFMTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
         db = try DatabaseManager(path: temporaryDirectory.appendingPathComponent("library.sqlite").path)

@@ -49,6 +49,27 @@ final class RadioUserState: @unchecked Sendable {
             try db.execute(sql: "CREATE TABLE IF NOT EXISTS state_metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID")
         }
         try migrateLegacyIfNeeded()
+        try migrateMergedFavorites()
+    }
+
+    private func migrateMergedFavorites() throws {
+        let aliases = try catalog.channelAliases()
+        try queue.write { db in
+            let favorites = try Row.fetchAll(db, sql: "SELECT channel_id,stationuuid,added_at FROM favorites")
+            for row in favorites {
+                let old: String = row["channel_id"]
+                guard let canonical = aliases[old] else { continue }
+                let uuid: String = row["stationuuid"]
+                let date: Date = row["added_at"]
+                try db.execute(sql: """
+                    INSERT INTO favorites(channel_id,stationuuid,added_at) VALUES (?,?,?)
+                    ON CONFLICT(channel_id) DO UPDATE SET
+                        stationuuid=excluded.stationuuid, added_at=excluded.added_at
+                    WHERE excluded.added_at < favorites.added_at
+                    """, arguments: [canonical, uuid, date])
+                try db.execute(sql: "DELETE FROM favorites WHERE channel_id=?", arguments: [old])
+            }
+        }
     }
 
     func favoriteChannelIDs() throws -> Set<String> {
@@ -56,11 +77,23 @@ final class RadioUserState: @unchecked Sendable {
     }
 
     func unresolvedFavorites() throws -> [UnresolvedRadioFavorite] {
-        try queue.read { db in
+        var unresolved = try queue.read { db in
             try Row.fetchAll(db, sql: "SELECT stationuuid,name,added_at FROM unresolved_favorites ORDER BY added_at DESC").map { row in
                 UnresolvedRadioFavorite(stationUUID: row["stationuuid"], name: row["name"], addedAt: row["added_at"])
             }
         }
+        let favorites = try queue.read { try Row.fetchAll($0, sql: "SELECT channel_id,stationuuid,added_at FROM favorites") }
+        for row in favorites {
+            let channelID: String = row["channel_id"]
+            guard try catalog.fetchStation(channelID: channelID) == nil else { continue }
+            let uuid: String = row["stationuuid"]
+            if !unresolved.contains(where: { $0.stationUUID == uuid }) {
+                unresolved.append(UnresolvedRadioFavorite(
+                    stationUUID: uuid, name: try catalog.channelName(channelID: channelID), addedAt: row["added_at"]
+                ))
+            }
+        }
+        return unresolved.sorted { $0.addedAt > $1.addedAt }
     }
 
     func favoriteStations() throws -> [RadioStation] {
@@ -82,7 +115,14 @@ final class RadioUserState: @unchecked Sendable {
     }
 
     func removeUnresolvedFavorite(stationUUID: String) throws {
-        try queue.write { try $0.execute(sql: "DELETE FROM unresolved_favorites WHERE stationuuid=?", arguments: [stationUUID]) }
+        let ids = try queue.read { try String.fetchAll($0, sql: "SELECT channel_id FROM favorites WHERE stationuuid=?", arguments: [stationUUID]) }
+        let unavailable = try ids.filter { try catalog.fetchStation(channelID: $0) == nil }
+        try queue.write { db in
+            try db.execute(sql: "DELETE FROM unresolved_favorites WHERE stationuuid=?", arguments: [stationUUID])
+            for channelID in unavailable {
+                try db.execute(sql: "DELETE FROM favorites WHERE channel_id=?", arguments: [channelID])
+            }
+        }
     }
 
     private func migrateLegacyIfNeeded() throws {

@@ -46,6 +46,10 @@ using namespace TagLib;
     for (auto it = chapterList.begin(); it != chapterList.end(); ++it) {
         ID3v2::ChapterFrame *frame = dynamic_cast<ID3v2::ChapterFrame *>(*it);
 
+        if (!frame) {
+            continue;
+        }
+
         NSTimeInterval startTime = NSTimeInterval(frame->startTime()) / 1000;
         NSTimeInterval endTime = NSTimeInterval(frame->endTime()) / 1000;
 
@@ -63,9 +67,7 @@ using namespace TagLib;
             for (auto it = frame->embeddedFrameList().begin(); it != frame->embeddedFrameList().end(); ++it) {
                 auto tit2Frame = dynamic_cast<const ID3v2::TextIdentificationFrame *>(*it);
 
-                // cout << tit2Frame->frameID() << endl;
-
-                if (tit2Frame->frameID() == "TIT2") {
+                if (tit2Frame && tit2Frame->frameID() == "TIT2") {
                     chapterName = @(tit2Frame->toString().toCString());
                 }
             }

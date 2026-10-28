@@ -50,9 +50,19 @@ struct AlbumsGridView: View {
             }
         }
         .task { await loadAlbums() }
+        .onAppear { InteractionDiagnostics.shared.record("albums.appeared") }
+        .onChange(of: selectedAlbum?.id) { _, id in
+            InteractionDiagnostics.shared.record("albums.navigation.changed detail=\(id != nil)", albumID: id)
+        }
         .onChange(of: appState.libraryVersion) { _, _ in Task { await loadAlbums() } }
-        .onChange(of: controller.currentTrack?.fileURL) { _, _ in reconcilePendingPlaybackAlbum() }
-        .onChange(of: controller.isPlaying) { _, _ in reconcilePendingPlaybackAlbum() }
+        .onChange(of: controller.currentTrack?.fileURL) { _, _ in
+            InteractionDiagnostics.shared.record("playback.track.changed")
+            reconcilePendingPlaybackAlbum()
+        }
+        .onChange(of: controller.isPlaying) { _, playing in
+            InteractionDiagnostics.shared.record("playback.state playing=\(playing)")
+            reconcilePendingPlaybackAlbum()
+        }
         .onAppear { installKeyMonitor() }
         .onDisappear { removeKeyMonitor() }
     }
@@ -65,9 +75,14 @@ struct AlbumsGridView: View {
     }
 
     private func tracksFor(_ album: Album) async -> [Track] {
-        (try? await appState.db.read { db in
-            try LibraryAlbumQuery.tracks(for: album, in: db)
-        }) ?? []
+        do {
+            return try await appState.db.read { db in
+                try LibraryAlbumQuery.tracks(for: album, in: db)
+            }
+        } catch {
+            InteractionDiagnostics.shared.record("albums.tracks.read.failed", albumID: album.id)
+            return []
+        }
     }
 
     private func tracksFor(_ albums: [Album]) async -> [Track] {
@@ -117,6 +132,7 @@ struct AlbumsGridView: View {
         let labelSuffix = targetAlbums.count == 1 ? "\"\(album.title)\"" : "\(targetAlbums.count) Albums"
 
         Button {
+            InteractionDiagnostics.shared.record("albums.context.play", albumID: album.id)
             Task {
                 let tracks = await tracksFor(targetAlbums)
                 guard let first = tracks.first else { return }
@@ -200,6 +216,7 @@ struct AlbumsGridView: View {
                             Color.bgContent
                                 .contentShape(Rectangle())
                                 .onTapGesture {
+                                    InteractionDiagnostics.shared.record("albums.background.tap")
                                     selection.clear()
                                 }
                                 .gesture(albumMarqueeGesture)
@@ -212,6 +229,7 @@ struct AlbumsGridView: View {
                                         isPlaying: isAlbumShowingPlayback(album),
                                         onTap: { handleAlbumTap(album) },
                                         onPlay: {
+                                            InteractionDiagnostics.shared.record("albums.play.action", albumID: album.id)
                                             if isCurrentAlbum(album) {
                                                 pendingPlaybackAlbumId = controller.isPlaying ? nil : album.id
                                                 controller.togglePlayPause()
@@ -221,6 +239,7 @@ struct AlbumsGridView: View {
                                             pendingPlaybackAlbumId = album.id
                                             Task {
                                                 let tracks = await tracksFor(album)
+                                                InteractionDiagnostics.shared.record("albums.play.tracks count=\(tracks.count)", albumID: album.id)
                                                 guard let first = tracks.first else {
                                                     await MainActor.run {
                                                         if pendingPlaybackAlbumId == album.id {
@@ -291,6 +310,7 @@ struct AlbumsGridView: View {
     }
 
     private func albumDragProvider(for album: Album) -> NSItemProvider {
+        InteractionDiagnostics.shared.record("albums.drag.provider", albumID: album.id)
         let payload = albumDragPayload(for: album)
         let provider = NSItemProvider()
         guard let data = try? JSONEncoder().encode(payload) else { return provider }
@@ -401,12 +421,14 @@ struct AlbumsGridView: View {
         DragGesture(minimumDistance: 8, coordinateSpace: .named("albumsGrid"))
             .onChanged { value in
                 if marqueeStart == nil {
+                    InteractionDiagnostics.shared.record("albums.marquee.started")
                     marqueeStart = value.startLocation
                 }
                 marqueeCurrent = value.location
                 updateMarqueeSelection()
             }
             .onEnded { _ in
+                InteractionDiagnostics.shared.record("albums.marquee.ended")
                 updateMarqueeSelection()
                 marqueeStart = nil
                 marqueeCurrent = nil
@@ -422,6 +444,7 @@ struct AlbumsGridView: View {
     }
 
     private func handleAlbumTap(_ album: Album) {
+        InteractionDiagnostics.shared.record("albums.card.tap modifiers=\(NSEvent.modifierFlags.rawValue)", albumID: album.id)
         let modifiers = currentSelectionModifiers()
         if modifiers.isEmpty {
             selectedAlbum = album
@@ -528,7 +551,10 @@ struct AlbumCard: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
-        .onHover { isHovered = $0 }
+        .onHover {
+            isHovered = $0
+            InteractionDiagnostics.shared.record("albums.card.hover inside=\($0)", albumID: album.id)
+        }
     }
 }
 
@@ -596,6 +622,7 @@ struct AlbumCell: View {
                 }
 
                 Button {
+                    InteractionDiagnostics.shared.record("albumCell.play.action", albumID: album.id)
                     if controller.currentTrack?.albumId == album.id {
                         pendingPlayback = !controller.isPlaying
                         controller.togglePlayPause()
@@ -635,8 +662,14 @@ struct AlbumCell: View {
             .padding(.top, 10)
         }
         .contentShape(Rectangle())
-        .onTapGesture { onTap?() }
-        .onHover { isHovered = $0 }
+        .onTapGesture {
+            InteractionDiagnostics.shared.record("albumCell.tap", albumID: album.id)
+            onTap?()
+        }
+        .onHover {
+            isHovered = $0
+            InteractionDiagnostics.shared.record("albums.card.hover inside=\($0)", albumID: album.id)
+        }
         .onChange(of: controller.currentTrack?.fileURL) { _, _ in reconcilePendingPlayback() }
         .onChange(of: controller.isPlaying) { _, _ in reconcilePendingPlayback() }
         .contextMenu {

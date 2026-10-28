@@ -42,7 +42,7 @@ final class PlaybackTests: XCTestCase {
         let engine = TestPlaybackEngine()
         let controller = PlaybackController(db: makeTemporaryDatabase(), engine: engine, enableMediaKeyMonitor: false)
         let catalog = try ReviewedRadioCatalog()
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("RadioPlay-\(UUID().uuidString)")
+        let directory = TestTemporaryDirectory.root.appendingPathComponent("RadioPlay-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let model = RadioViewModel(catalog: catalog, userState: try RadioUserState(catalog: catalog, directory: directory))
@@ -607,7 +607,7 @@ final class PlaybackTests: XCTestCase {
     }
 
     private func makeTemporaryDatabase() -> DatabaseManager {
-        let directory = FileManager.default.temporaryDirectory
+        let directory = TestTemporaryDirectory.root
             .appendingPathComponent("MoonlightPlaybackTests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock {

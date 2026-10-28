@@ -36,7 +36,7 @@ final class UsageAnalyticsTests: XCTestCase {
     }
 
     private func writeConfiguration(bundleID: String) throws -> String {
-        let url = FileManager.default.temporaryDirectory
+        let url = TestTemporaryDirectory.root
             .appendingPathComponent("firebase-config-\(UUID().uuidString).plist")
         let configuration: [String: String] = ["BUNDLE_ID": bundleID]
         let data = try PropertyListSerialization.data(

@@ -13,6 +13,7 @@
 
 #import "AudioMarkerUtil.h"
 #import "ID3File.h"
+#import "StringUtil.h"
 #import "TagFile.h"
 #import "TagUtil.h"
 #import "WaveFileC.h"
@@ -92,8 +93,7 @@ using namespace TagLib;
     }
 
     if (waveFile->hasiXMLData()) {
-        _iXML = [[NSString alloc] initWithCString:waveFile->iXMLData().data(String::UTF8).data()
-                                         encoding:NSUTF8StringEncoding];
+        _iXML = StringUtil::utf8NSString(waveFile->iXMLData());
     }
 
     if (waveFile->hasInfoTag()) {

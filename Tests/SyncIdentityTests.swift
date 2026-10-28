@@ -647,7 +647,7 @@ final class SyncIdentityTests: XCTestCase {
     }
 
     override func setUp() async throws {
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("MoonlightSyncTests-\(UUID().uuidString)", isDirectory: true)
+        directory = TestTemporaryDirectory.root.appendingPathComponent("MoonlightSyncTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         manager = try DatabaseManager(path: directory.appendingPathComponent("library.sqlite").path)
     }

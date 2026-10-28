@@ -33,10 +33,16 @@ final class ReviewedRadioCatalog: @unchecked Sendable {
         try read { db in
             let version = try String.fetchOne(db, sql: "SELECT value FROM catalog_metadata WHERE key='schema_version'")
             let status = try String.fetchOne(db, sql: "SELECT value FROM catalog_metadata WHERE key='status'")
-            guard version == "1", status == "reviewed-healthy-snapshot",
-                  try Int.fetchOne(db, sql: "SELECT count(*) FROM channels") == 42_630,
-                  try Int.fetchOne(db, sql: "SELECT count(*) FROM streams") == 44_726,
-                  try Int.fetchOne(db, sql: "SELECT count(*) FROM channel_search") == 42_630,
+            let channelCount = try Int.fetchOne(db, sql: "SELECT CAST(value AS INTEGER) FROM catalog_metadata WHERE key='channel_count'")
+            let streamCount = try Int.fetchOne(db, sql: "SELECT CAST(value AS INTEGER) FROM catalog_metadata WHERE key='stream_count'")
+            guard version == "2", status == "reviewed-healthy-snapshot",
+                  let channelCount, channelCount > 40_000,
+                  let streamCount, streamCount == 44_726,
+                  try Int.fetchOne(db, sql: "SELECT count(*) FROM channels") == channelCount,
+                  try Int.fetchOne(db, sql: "SELECT count(*) FROM streams") == streamCount,
+                  try Int.fetchOne(db, sql: "SELECT count(*) FROM channel_search") == channelCount,
+                  try Int.fetchOne(db, sql: "SELECT count(*) FROM streams s JOIN stream_exclusions e ON e.stream_id=s.id WHERE s.is_default=1") == 0,
+                  (try Int.fetchOne(db, sql: "SELECT count(*) FROM channel_genres WHERE genre='classical'") ?? 0) > 0,
                   try String.fetchOne(db, sql: "PRAGMA quick_check") == "ok" else {
                 throw RadioCatalogError.invalidCatalog
             }
@@ -44,11 +50,11 @@ final class ReviewedRadioCatalog: @unchecked Sendable {
     }
 
     func stationCount() throws -> Int {
-        try read { try Int.fetchOne($0, sql: "SELECT count(*) FROM channels") ?? 0 }
+        try read { try Int.fetchOne($0, sql: "SELECT count(DISTINCT channel_id) FROM streams WHERE is_default=1") ?? 0 }
     }
 
     func fetchStations(
-        search: String? = nil, countryCode: String? = nil,
+        search: String? = nil, genre: String? = nil, countryCode: String? = nil,
         minimumBitrate: Int = 0, popularOnly: Bool = false, limit: Int = 200
     ) throws -> [RadioStation] {
         var filters = ["1=1"]
@@ -70,8 +76,12 @@ final class ReviewedRadioCatalog: @unchecked Sendable {
             filters.append("c.country_code = ?")
             arguments.append(countryCode.uppercased())
         }
+        if let genre, !genre.isEmpty {
+            filters.append("EXISTS (SELECT 1 FROM channel_genres g WHERE g.channel_id=c.id AND g.genre=?)")
+            arguments.append(genre)
+        }
         if minimumBitrate > 0 {
-            filters.append("EXISTS (SELECT 1 FROM streams quality WHERE quality.channel_id=c.id AND quality.bitrate_kbps>=?)")
+            filters.append("EXISTS (SELECT 1 FROM streams quality WHERE quality.channel_id=c.id AND quality.bitrate_kbps>=? AND NOT EXISTS (SELECT 1 FROM stream_exclusions e WHERE e.stream_id=quality.id))")
             arguments.append(minimumBitrate)
         }
         if popularOnly { filters.append("c.is_popular=1") }
@@ -83,7 +93,24 @@ final class ReviewedRadioCatalog: @unchecked Sendable {
 
     func fetchStation(channelID: String) throws -> RadioStation? {
         try read { db in
-            try Self.fetchRows(db, whereSQL: "c.id=?", arguments: [channelID, 1]).first
+            let canonical = try String.fetchOne(db, sql: "SELECT channel_id FROM channel_aliases WHERE old_id=?", arguments: [channelID]) ?? channelID
+            return try Self.fetchRows(db, whereSQL: "c.id=?", arguments: [canonical, 1]).first
+        }
+    }
+
+    func channelAliases() throws -> [String: String] {
+        try read { db in
+            let rows = try Row.fetchAll(db, sql: "SELECT old_id,channel_id FROM channel_aliases")
+            return Dictionary(uniqueKeysWithValues: rows.map { ($0["old_id"] as String, $0["channel_id"] as String) })
+        }
+    }
+
+    func channelName(channelID: String) throws -> String? {
+        try read { db in
+            try String.fetchOne(db, sql: """
+                SELECT display_name FROM channels WHERE id=COALESCE(
+                    (SELECT channel_id FROM channel_aliases WHERE old_id=?), ?)
+                """, arguments: [channelID, channelID])
         }
     }
 
@@ -92,6 +119,7 @@ final class ReviewedRadioCatalog: @unchecked Sendable {
             try Row.fetchAll(db, sql: """
                 SELECT country_code, count(*) AS station_count FROM channels
                 WHERE country_code IS NOT NULL AND country_code<>''
+                  AND EXISTS (SELECT 1 FROM streams s WHERE s.channel_id=channels.id AND s.is_default=1)
                 GROUP BY country_code ORDER BY station_count DESC LIMIT ?
             """, arguments: [max(1, min(limit, 250))]).map { row in
                 let code: String = row["country_code"]
@@ -103,10 +131,15 @@ final class ReviewedRadioCatalog: @unchecked Sendable {
     private static func fetchRows(_ db: Database, whereSQL: String, arguments: StatementArguments) throws -> [RadioStation] {
         let rows = try Row.fetchAll(db, sql: """
             SELECT c.*, s.stream_url, s.codec, s.bitrate_kbps, s.stationuuid,
-                   (SELECT group_concat(alt.stream_url, char(31)) FROM streams alt
-                    WHERE alt.channel_id=c.id AND alt.id<>s.id) AS alternate_urls
+                   (SELECT group_concat(stream_url, char(31)) FROM (
+                       SELECT alt.stream_url FROM streams alt
+                       WHERE alt.channel_id=c.id AND alt.stream_url<>s.stream_url
+                         AND NOT EXISTS (SELECT 1 FROM stream_exclusions e WHERE e.stream_id=alt.id)
+                       GROUP BY alt.stream_url
+                       ORDER BY max(COALESCE(alt.bitrate_kbps,0)) DESC, alt.stream_url
+                   )) AS alternate_urls
             FROM channels c JOIN streams s ON s.channel_id=c.id AND s.is_default=1
-            WHERE \(whereSQL)
+            WHERE NOT EXISTS (SELECT 1 FROM stream_exclusions e WHERE e.stream_id=s.id) AND \(whereSQL)
             ORDER BY c.is_popular DESC, c.display_name COLLATE NOCASE LIMIT ?
         """, arguments: arguments)
         return rows.map { row in

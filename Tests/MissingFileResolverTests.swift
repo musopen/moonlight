@@ -8,7 +8,7 @@ final class MissingFileResolverTests: XCTestCase {
     private var folderId: Int64!
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory
+        root = TestTemporaryDirectory.root
             .appendingPathComponent("MoonlightMissingFileResolverTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         db = try DatabaseManager(path: root.appendingPathComponent("library.sqlite").path)

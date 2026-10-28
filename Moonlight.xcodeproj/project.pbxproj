@@ -142,6 +142,7 @@
 		B09C2ECCBCB6202A4C3DF73C /* Artist.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3264B5BE234D6C5F00BE4A0 /* Artist.swift */; };
 		B20724EE75D2474948AEAF04 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45D927687341D80CDC96A6C8 /* AppState.swift */; };
 		B3AE8EB2210CD6EB5445B14E /* Album.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF54CB7FC4F0D059A7B75FD0 /* Album.swift */; };
+		B583955208D80DA0EB534464 /* TestTemporaryDirectory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EBD11BB3703B87B66AD5673 /* TestTemporaryDirectory.swift */; };
 		B5F0219122A8D8DD8823CCE3 /* PortableIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F68714ACB1D46450C7D91ED7 /* PortableIdentity.swift */; };
 		B887F3181FD937046C3A6AA2 /* MobileRuntimeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB17E3D271C66811E585051B /* MobileRuntimeSupport.swift */; };
 		B9873EF24D4450B0EAB54600 /* SPFKBase-MIT.txt in Resources */ = {isa = PBXBuildFile; fileRef = A7B243D68C84E9E0138FDF5F /* SPFKBase-MIT.txt */; };
@@ -242,6 +243,7 @@
 		05CF4E5A6C8FCAC745C51287 /* MobilePlaybackController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobilePlaybackController.swift; sourceTree = "<group>"; };
 		0A5C035041EFD2DA4B539015 /* AlbumsGridView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlbumsGridView.swift; sourceTree = "<group>"; };
 		0A76612D6FFF2228C10A8D9C /* CoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreServices.framework; path = System/Library/Frameworks/CoreServices.framework; sourceTree = SDKROOT; };
+		0EBD11BB3703B87B66AD5673 /* TestTemporaryDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestTemporaryDirectory.swift; sourceTree = "<group>"; };
 		126ED61ADB403A03127F2522 /* SwiftCollections-Apache-2.0.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "SwiftCollections-Apache-2.0.txt"; sourceTree = "<group>"; };
 		12A5473B71B07C2EA53C50B1 /* SwiftExtensions-MIT.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "SwiftExtensions-MIT.txt"; sourceTree = "<group>"; };
 		14B91F934B7C2B5DF76B4161 /* CoreAudio.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAudio.framework; path = System/Library/Frameworks/CoreAudio.framework; sourceTree = SDKROOT; };
@@ -818,6 +820,7 @@
 				9B4B9EA88EE9E5D1919CE1B7 /* ScannerTests.swift */,
 				82F345FEEA2CF5BE9EFE6F2B /* SongsTableColumnLayoutTests.swift */,
 				7C8785AB5E4EF6DFCE5946D4 /* SyncIdentityTests.swift */,
+				0EBD11BB3703B87B66AD5673 /* TestTemporaryDirectory.swift */,
 				9F7248579EC0DF54FDB001B8 /* TwoStoreSyncHarnessTests.swift */,
 				2453FF47B6D0C91413E6922F /* UsageAnalyticsTests.swift */,
 				9BC72164B9A4E3EC1E2BAA59 /* Fixtures */,
@@ -1158,6 +1161,7 @@
 				6C095FC98CBD8A316E05A235 /* ScannerTests.swift in Sources */,
 				E4BE9968D7BE3C7E27ABF066 /* SongsTableColumnLayoutTests.swift in Sources */,
 				E904B521B63123165E022931 /* SyncIdentityTests.swift in Sources */,
+				B583955208D80DA0EB534464 /* TestTemporaryDirectory.swift in Sources */,
 				CD7B3D0D118CBAB200038E08 /* TwoStoreSyncHarnessTests.swift in Sources */,
 				7EAB2DD3E7AC5B849F1D026F /* UsageAnalyticsTests.swift in Sources */,
 			);

@@ -1,0 +1,39 @@
+{
+  "samples": [
+    {
+      "url": "https://breakz-high.rautemusik.fm/",
+      "content_type": "audio/mpeg",
+      "icy_name": "Breakz.FM",
+      "sha256": "5b43017aa0becd2c4a2d931776bdbd81101fd2370316d379ca0128d11b4dbfce"
+    },
+    {
+      "url": "https://breakz-2012-high.rautemusik.fm/",
+      "content_type": "audio/mpeg",
+      "icy_name": "Breakz.FM",
+      "sha256": "5b43017aa0becd2c4a2d931776bdbd81101fd2370316d379ca0128d11b4dbfce"
+    },
+    {
+      "url": "https://stream.breakz.fm/",
+      "content_type": "audio/mpeg",
+      "icy_name": "Breakz.FM",
+      "sha256": "5b43017aa0becd2c4a2d931776bdbd81101fd2370316d379ca0128d11b4dbfce"
+    }
+  ],
+  "comparisons": [
+    {
+      "first": "https://breakz-high.rautemusik.fm/",
+      "second": "https://breakz-2012-high.rautemusik.fm/",
+      "matching_256_byte_windows": 256
+    },
+    {
+      "first": "https://breakz-high.rautemusik.fm/",
+      "second": "https://stream.breakz.fm/",
+      "matching_256_byte_windows": 256
+    },
+    {
+      "first": "https://breakz-2012-high.rautemusik.fm/",
+      "second": "https://stream.breakz.fm/",
+      "matching_256_byte_windows": 256
+    }
+  ]
+}
