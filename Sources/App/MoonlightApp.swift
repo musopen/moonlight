@@ -107,7 +107,10 @@ struct MoonlightApp: App {
             }
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 675, height: 600)
+        .defaultSize(
+            width: MiniPlayerWindowMetrics.libraryFallbackSize.width,
+            height: MiniPlayerWindowMetrics.libraryFallbackSize.height
+        )
         .commands {
             if let appState = launcher.appState {
                 MoonlightCommands(appState: appState)

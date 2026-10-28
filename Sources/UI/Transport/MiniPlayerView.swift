@@ -4,7 +4,7 @@
 // resizable square. By default it shows the album artwork with controls that appear on hover;
 // the Moonamp, Terminal and MoonPod themes each get their own retro-style version. It also
 // adjusts the window's size limits and buttons when switching between the mini player and the
-// full library window.
+// full library window, and remembers the library window's size and position between launches.
 
 import SwiftUI
 import AppKit
@@ -16,7 +16,7 @@ enum MiniPlayerWindowMetrics {
     static let maxSize = NSSize(width: 640, height: 640)
     static let emptyLibraryMinSize = NSSize(width: 600, height: 500)
     static let libraryMinSize = NSSize(width: 900, height: 560)
-    static let libraryFallbackSize = NSSize(width: 1100, height: 720)
+    static let libraryFallbackSize = NSSize(width: 1100, height: 760)
 }
 
 struct MiniPlayerView: View {
@@ -1464,6 +1464,8 @@ private struct MoonPodMiniControlsView: View {
 }
 
 struct WindowModeWindowConfigurator: NSViewRepresentable {
+    static let libraryFrameAutosaveName = NSWindow.FrameAutosaveName("MoonlightLibraryWindow")
+
     let mode: WindowMode
     let theme: AppTheme
     let showsWindowButtons: Bool
@@ -1497,10 +1499,6 @@ struct WindowModeWindowConfigurator: NSViewRepresentable {
             window.minSize = isEmptyLibrary
                 ? MiniPlayerWindowMetrics.emptyLibraryMinSize
                 : MiniPlayerWindowMetrics.libraryMinSize
-            if isEmptyLibrary, !context.coordinator.didSizeEmptyLibrary {
-                context.coordinator.didSizeEmptyLibrary = true
-                resize(window: window, contentSize: NSSize(width: 675, height: 600))
-            }
         }
         guard context.coordinator.lastMode != mode else { return }
         let previousMode = context.coordinator.lastMode
@@ -1510,7 +1508,10 @@ struct WindowModeWindowConfigurator: NSViewRepresentable {
         case .miniPlayer:
             if previousMode != .miniPlayer {
                 context.coordinator.lastLibraryFrame = window.frame
+                window.saveFrame(usingName: Self.libraryFrameAutosaveName)
             }
+            // Keep the mini player's frame out of the saved library window geometry.
+            window.setFrameAutosaveName("")
             window.minSize = MiniPlayerWindowMetrics.minSize
             window.maxSize = MiniPlayerWindowMetrics.maxSize
             context.coordinator.constrainSquareResizing(for: window)
@@ -1534,7 +1535,15 @@ struct WindowModeWindowConfigurator: NSViewRepresentable {
                 } else {
                     resize(window: window, contentSize: MiniPlayerWindowMetrics.libraryFallbackSize)
                 }
+            } else if !window.setFrameUsingName(Self.libraryFrameAutosaveName, force: true) {
+                resize(window: window, contentSize: MiniPlayerWindowMetrics.libraryFallbackSize)
             }
+            window.setFrame(
+                constrainedToVisibleScreen(window.frame, for: window),
+                display: true,
+                animate: false
+            )
+            window.setFrameAutosaveName(Self.libraryFrameAutosaveName)
         }
     }
 
@@ -1601,23 +1610,16 @@ struct WindowModeWindowConfigurator: NSViewRepresentable {
         guard let visibleFrame = window.screen?.visibleFrame else { return frame }
 
         var constrainedFrame = frame
-        if constrainedFrame.width <= visibleFrame.width {
-            constrainedFrame.origin.x = min(
-                max(constrainedFrame.minX, visibleFrame.minX),
-                visibleFrame.maxX - constrainedFrame.width
-            )
-        } else {
-            constrainedFrame.origin.x = visibleFrame.minX
-        }
-
-        if constrainedFrame.height <= visibleFrame.height {
-            constrainedFrame.origin.y = min(
-                max(constrainedFrame.minY, visibleFrame.minY),
-                visibleFrame.maxY - constrainedFrame.height
-            )
-        } else {
-            constrainedFrame.origin.y = visibleFrame.minY
-        }
+        constrainedFrame.size.width = min(constrainedFrame.width, visibleFrame.width)
+        constrainedFrame.size.height = min(constrainedFrame.height, visibleFrame.height)
+        constrainedFrame.origin.x = min(
+            max(constrainedFrame.minX, visibleFrame.minX),
+            visibleFrame.maxX - constrainedFrame.width
+        )
+        constrainedFrame.origin.y = min(
+            max(constrainedFrame.minY, visibleFrame.minY),
+            visibleFrame.maxY - constrainedFrame.height
+        )
 
         return constrainedFrame
     }
@@ -1626,7 +1628,6 @@ struct WindowModeWindowConfigurator: NSViewRepresentable {
         var lastMode: WindowMode?
         weak var previousDelegate: NSWindowDelegate?
         var lastLibraryFrame: NSRect?
-        var didSizeEmptyLibrary = false
 
         func constrainSquareResizing(for window: NSWindow) {
             guard window.delegate !== self else { return }
