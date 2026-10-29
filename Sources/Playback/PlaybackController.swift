@@ -30,6 +30,7 @@ final class PlaybackController: ObservableObject {
     }
     @Published var isShuffled: Bool = false
     @Published private(set) var isPlaying: Bool = false
+    @Published private(set) var isLoading: Bool = false
     @Published private(set) var playbackError: String?
     @Published private(set) var unavailableTrackForPlayback: Track?
     @Published private(set) var playbackFolderUnavailable = false
@@ -159,14 +160,6 @@ final class PlaybackController: ObservableObject {
         pendingFileRecovery = nil
         isRecoveringUnavailableFile = false
 
-        do {
-            try engine.play(url: streamURL, nextURL: nil)
-        } catch {
-            playbackError = error.localizedDescription
-            isPlaying = false
-            return
-        }
-
         lastFMScrobbler?.playbackDidStop()
         queue = []
         unshuffledQueue = nil
@@ -176,7 +169,16 @@ final class PlaybackController: ObservableObject {
         preparedNextTrack = nil
         pendingRestorePosition = nil
         hasStartedPlayback = true
-        isPlaying = true
+        isPlaying = false
+        isLoading = true
+
+        do {
+            try engine.play(url: streamURL, nextURL: nil)
+        } catch {
+            playbackError = error.localizedDescription
+            isPlaying = false
+            isLoading = false
+        }
     }
 
     func playOrToggle(track: Track, in tracks: [Track] = []) {
@@ -353,6 +355,7 @@ final class PlaybackController: ObservableObject {
             lastFMScrobbler?.playbackDidPause(position: engine.currentTime)
         }
         isPlaying = false
+        isLoading = false
         engine.pause()
         persistSession()
     }
@@ -360,8 +363,9 @@ final class PlaybackController: ObservableObject {
     func resumePlayback() {
         switch engine.state {
         case .paused:
-            isPlaying = true
             engine.resume()
+            isPlaying = engine.state == .playing
+            isLoading = engine.state == .loading
             if currentTrack != nil {
                 lastFMScrobbler?.playbackDidResume(position: engine.currentTime)
             }
@@ -655,8 +659,9 @@ final class PlaybackController: ObservableObject {
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
-                guard let self else { return }
+                guard let self, state == self.engine.state else { return }
                 self.isPlaying = (state == .playing)
+                self.isLoading = (state == .loading)
                 if case let .error(message) = state {
                     self.playbackError = message
                 }

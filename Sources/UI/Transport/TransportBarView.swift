@@ -366,7 +366,7 @@ private struct TransportControlsView: View {
             .disabled(isRadio)
             .opacity(isRadio ? 0.35 : 1)
             TransportIconButton(
-                icon: controller.isPlaying ? "pause" : "play.fill",
+                icon: controller.isPlaying || controller.isLoading ? "pause" : "play.fill",
                 size: 24,
                 frameSize: 44,
                 action: { controller.togglePlayPause() }
@@ -392,17 +392,31 @@ private struct TransportControlsView: View {
 }
 
 private struct RadioLiveProgressView: View {
+    @EnvironmentObject private var controller: PlaybackController
+
+    private var statusText: String {
+        if controller.isLoading { return "Connecting…" }
+        if controller.isPlaying { return "LIVE" }
+        if case .error = controller.engine.state { return "Unable to connect" }
+        return "Paused"
+    }
+
     var body: some View {
         HStack(spacing: 8) {
-            Circle()
-                .fill(Color.dAccent)
-                .frame(width: 6, height: 6)
-            Text("LIVE")
+            if controller.isLoading {
+                ProgressView().controlSize(.mini)
+            } else {
+                Circle()
+                    .fill(controller.isPlaying ? Color.dAccent : Color.textTertiary)
+                    .frame(width: 6, height: 6)
+            }
+            Text(statusText)
                 .font(AppTheme.current.font(.metadata, size: 10.5, weight: .bold))
                 .tracking(0.8)
                 .foregroundStyle(Color.textTertiary)
         }
         .frame(height: 16)
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -198,8 +198,14 @@ final class RadioViewModel: ObservableObject {
 
     func play(_ station: RadioStation, using controller: PlaybackController) {
         if controller.currentRadioStation?.stationUUID == station.stationUUID {
-            controller.togglePlayPause()
-            return
+            guard !controller.isLoading else { return }
+            switch controller.engine.state {
+            case .playing, .paused, .loading:
+                controller.togglePlayPause()
+                return
+            default:
+                break
+            }
         }
 
         guard let streamURL = RadioWebURL.validated(station.streamURL) else {

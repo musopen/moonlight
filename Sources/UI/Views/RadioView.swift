@@ -163,6 +163,7 @@ private struct RadioBrowseView: View {
                             station: station,
                             isCurrent: controller.currentRadioStation?.stationUUID == station.stationUUID,
                             isPlaying: controller.isPlaying,
+                            isLoading: controller.isLoading,
                             onReportProblem: reportAction(for: station, appState: appState)
                         ) {
                             model.play(station, using: controller)
@@ -279,6 +280,7 @@ private struct RadioFavoriteBookmark: View {
     let station: RadioStation
     let isCurrent: Bool
     let isPlaying: Bool
+    let isLoading: Bool
     let onReportProblem: (() -> Void)?
     let action: () -> Void
 
@@ -293,7 +295,10 @@ private struct RadioFavoriteBookmark: View {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
                         .strokeBorder(badgeColor.opacity(isCurrent ? 0.90 : 0.42), lineWidth: isCurrent ? 1.2 : 0.75)
 
-                    if isCurrent && isPlaying {
+                    if isCurrent && isLoading {
+                        ProgressView().controlSize(.small)
+                            .accessibilityLabel("Connecting to \(station.name)")
+                    } else if isCurrent && isPlaying {
                         VUMeterInline(color: badgeColor)
                     } else if isHovered {
                         Image(systemName: "play.fill")
@@ -410,6 +415,7 @@ private struct RadioResultsView: View {
                             station: station,
                             isCurrent: controller.currentRadioStation?.stationUUID == station.stationUUID,
                             isPlaying: controller.isPlaying,
+                            isLoading: controller.isLoading,
                             isFavorite: model.favoriteUUIDs.contains(station.channelID ?? station.stationUUID),
                             onPlay: { model.play(station, using: controller) },
                             onReportProblem: reportAction(for: station, appState: appState),
@@ -538,6 +544,7 @@ private struct RadioStationRow: View {
     let station: RadioStation
     let isCurrent: Bool
     let isPlaying: Bool
+    let isLoading: Bool
     let isFavorite: Bool
     let onPlay: () -> Void
     let onReportProblem: (() -> Void)?
@@ -550,7 +557,10 @@ private struct RadioStationRow: View {
         HStack(spacing: 0) {
             Button(action: onPlay) {
                 Group {
-                    if isCurrent && isPlaying {
+                    if isCurrent && isLoading {
+                        ProgressView().controlSize(.small)
+                            .accessibilityLabel("Connecting to \(station.name)")
+                    } else if isCurrent && isPlaying {
                         VUMeterInline(color: Color.dAccent)
                     } else {
                         Image(systemName: isHovered ? "play.fill" : "radio")
@@ -561,7 +571,7 @@ private struct RadioStationRow: View {
                 .frame(width: 18, height: 18)
             }
             .buttonStyle(.plain)
-            .help(isCurrent && isPlaying ? "Pause" : "Play")
+            .help(isCurrent && isLoading ? "Connecting…" : (isCurrent && isPlaying ? "Pause" : "Play"))
             .padding(.trailing, 9)
 
             HStack(spacing: 12) {

@@ -93,6 +93,119 @@ final class PlaybackTests: XCTestCase {
         XCTAssertEqual(controller.currentTrack?.dbId, track.dbId)
     }
 
+    func testRadioPublishesLoadingBeforeStartingTheEngine() throws {
+        let engine = TestPlaybackEngine()
+        engine.playState = .loading
+        let controller = PlaybackController(db: makeTemporaryDatabase(), engine: engine, enableMediaKeyMonitor: false)
+        let station = try XCTUnwrap(ReviewedRadioCatalog().fetchStations(limit: 1).first)
+        engine.willPlay = {
+            XCTAssertEqual(controller.currentRadioStation, station)
+            XCTAssertTrue(controller.isLoading)
+            XCTAssertFalse(controller.isPlaying)
+        }
+
+        controller.playRadio(station: station, streamURL: try XCTUnwrap(URL(string: station.streamURL)))
+        engine.willPlay = nil
+        drainMainRunLoop()
+        XCTAssertTrue(controller.isLoading)
+
+        engine.setState(.playing)
+        drainMainRunLoop()
+        XCTAssertFalse(controller.isLoading)
+        XCTAssertTrue(controller.isPlaying)
+
+        engine.setState(.loading)
+        drainMainRunLoop()
+        XCTAssertTrue(controller.isLoading)
+        XCTAssertFalse(controller.isPlaying)
+
+        controller.pausePlayback()
+        XCTAssertFalse(controller.isLoading)
+        drainMainRunLoop()
+        XCTAssertEqual(engine.state, .paused)
+
+        engine.resumeState = .loading
+        controller.resumePlayback()
+        XCTAssertTrue(controller.isLoading)
+        XCTAssertFalse(controller.isPlaying)
+    }
+
+    func testRepeatedRadioClickWhileConnectingDoesNotPauseOrRestart() throws {
+        let catalog = try ReviewedRadioCatalog()
+        let model = try makeRadioModel(catalog: catalog)
+        let stations = try catalog.fetchStations(limit: 2)
+        XCTAssertEqual(stations.count, 2)
+        let engine = TestPlaybackEngine()
+        engine.playState = .loading
+        let controller = PlaybackController(db: makeTemporaryDatabase(), engine: engine, enableMediaKeyMonitor: false)
+
+        model.play(stations[0], using: controller)
+        model.play(stations[0], using: controller)
+        drainMainRunLoop()
+        model.play(stations[0], using: controller)
+        XCTAssertEqual(engine.playCallCount, 1)
+        XCTAssertEqual(engine.state, .loading)
+        XCTAssertTrue(controller.isLoading)
+
+        model.play(stations[1], using: controller)
+        drainMainRunLoop()
+        XCTAssertEqual(engine.playCallCount, 2)
+        XCTAssertEqual(controller.currentRadioStation, stations[1])
+        XCTAssertTrue(controller.isLoading)
+    }
+
+    func testRadioFailureClearsLoadingAndClickRetries() throws {
+        let catalog = try ReviewedRadioCatalog()
+        let model = try makeRadioModel(catalog: catalog)
+        let station = try XCTUnwrap(catalog.fetchStations(limit: 1).first)
+        let engine = TestPlaybackEngine()
+        engine.playState = .loading
+        let controller = PlaybackController(db: makeTemporaryDatabase(), engine: engine, enableMediaKeyMonitor: false)
+        model.play(station, using: controller)
+        engine.setState(.error("The station could not connect."))
+        drainMainRunLoop()
+        XCTAssertFalse(controller.isLoading)
+        XCTAssertFalse(controller.isPlaying)
+        XCTAssertEqual(controller.playbackError, "The station could not connect.")
+
+        model.play(station, using: controller)
+        XCTAssertTrue(controller.isLoading)
+        XCTAssertNil(controller.playbackError)
+        XCTAssertEqual(engine.playCallCount, 2)
+    }
+
+    func testSynchronousRadioFailureClearsLoading() throws {
+        let station = try XCTUnwrap(ReviewedRadioCatalog().fetchStations(limit: 1).first)
+        let engine = TestPlaybackEngine()
+        engine.playError = NSError(domain: "RadioTest", code: 1, userInfo: [NSLocalizedDescriptionKey: "Connection failed"])
+        let controller = PlaybackController(db: makeTemporaryDatabase(), engine: engine, enableMediaKeyMonitor: false)
+
+        controller.playRadio(station: station, streamURL: try XCTUnwrap(URL(string: station.streamURL)))
+        XCTAssertFalse(controller.isLoading)
+        XCTAssertFalse(controller.isPlaying)
+        XCTAssertEqual(controller.playbackError, "Connection failed")
+    }
+
+    func testStalePlayingEventDoesNotClearNewRadioLoadingState() throws {
+        let catalog = try ReviewedRadioCatalog()
+        let stations = try catalog.fetchStations(limit: 2)
+        let engine = TestPlaybackEngine()
+        let controller = PlaybackController(db: makeTemporaryDatabase(), engine: engine, enableMediaKeyMonitor: false)
+        controller.playRadio(station: stations[0], streamURL: try XCTUnwrap(URL(string: stations[0].streamURL)))
+        engine.playState = .loading
+        controller.playRadio(station: stations[1], streamURL: try XCTUnwrap(URL(string: stations[1].streamURL)))
+        drainMainRunLoop()
+        XCTAssertEqual(controller.currentRadioStation, stations[1])
+        XCTAssertTrue(controller.isLoading)
+        XCTAssertFalse(controller.isPlaying)
+    }
+
+    private func makeRadioModel(catalog: ReviewedRadioCatalog) throws -> RadioViewModel {
+        let directory = TestTemporaryDirectory.root.appendingPathComponent("RadioLoading-\(UUID().uuidString)")
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        return RadioViewModel(catalog: catalog, userState: try RadioUserState(catalog: catalog, directory: directory))
+    }
+
     func testShuffleToggleReconfiguresPreparedNextWhenDisabled() throws {
         let db = makeTemporaryDatabase()
         let engine = TestPlaybackEngine()
@@ -686,6 +799,9 @@ private class TestPlaybackEngine: PlaybackEngine {
     var playedURL: URL?
     var preparedNextURL: URL?
     var setVolumes: [Float] = []
+    var playCallCount = 0
+    var willPlay: (() -> Void)?
+    var playError: Error?
     var playState: PlaybackState = .playing
     var resumeState: PlaybackState = .playing
 
@@ -697,6 +813,9 @@ private class TestPlaybackEngine: PlaybackEngine {
     var itemTransitionPublisher: AnyPublisher<Void, Never> { itemTransitionSubject.eraseToAnyPublisher() }
 
     func play(url: URL, nextURL: URL?) throws {
+        playCallCount += 1
+        willPlay?()
+        if let playError { throw playError }
         playedURL = url
         preparedNextURL = nextURL
         stateSubject.send(playState)

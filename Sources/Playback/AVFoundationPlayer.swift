@@ -8,6 +8,7 @@
 import AVFoundation
 import Combine
 import Foundation
+import OSLog
 
 final class AVFoundationPlayer: NSObject, PlaybackEngine, AirPlayRouteProviding, AudioLevelProviding {
     private let player = AVQueuePlayer()
@@ -19,6 +20,8 @@ final class AVFoundationPlayer: NSObject, PlaybackEngine, AirPlayRouteProviding,
     private var waveformLevels: [Float] = []
     private var waveformTask: Task<Void, Never>?
     private var currentVolume: Float = 1.0
+    private var streamStartupTime: TimeInterval?
+    private let startupLogger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Moonlight", category: "RadioStartup")
 
     private let stateSubject = CurrentValueSubject<PlaybackState, Never>(.stopped)
     private let timeSubject = CurrentValueSubject<TimeInterval, Never>(0)
@@ -81,9 +84,19 @@ final class AVFoundationPlayer: NSObject, PlaybackEngine, AirPlayRouteProviding,
         player.publisher(for: \.timeControlStatus, options: [.initial, .new])
             .receive(on: DispatchQueue.main)
             .sink { [weak self] status in
-                guard let self, status == .playing else { return }
-                guard self.stateSubject.value != .playing else { return }
-                self.stateSubject.send(.playing)
+                guard let self, self.currentItem != nil,
+                      status == self.player.timeControlStatus else { return }
+                switch status {
+                case .playing:
+                    guard self.state == .loading || self.state == .playing else { return }
+                    self.logStreamStartup("playing")
+                    self.streamStartupTime = nil
+                    if self.state != .playing { self.stateSubject.send(.playing) }
+                case .waitingToPlayAtSpecifiedRate:
+                    if self.state == .playing { self.stateSubject.send(.loading) }
+                default:
+                    break
+                }
             }
             .store(in: &cancellables)
 
@@ -105,6 +118,7 @@ final class AVFoundationPlayer: NSObject, PlaybackEngine, AirPlayRouteProviding,
     }
 
     func play(url: URL, nextURL: URL? = nil) throws {
+        streamStartupTime = url.isFileURL ? nil : ProcessInfo.processInfo.systemUptime
         let item = makeItem(url: url)
         player.removeAllItems()
         clearItemStatusObservers()
@@ -137,12 +151,14 @@ final class AVFoundationPlayer: NSObject, PlaybackEngine, AirPlayRouteProviding,
     }
 
     func pause() {
+        streamStartupTime = nil
         player.pause()
         stateSubject.send(.paused)
         audioLevelsSubject.send(Array(repeating: 0, count: 32))
     }
 
     func resume() {
+        streamStartupTime = currentURL?.isFileURL == false ? ProcessInfo.processInfo.systemUptime : nil
         stateSubject.send(.loading)
         player.play()
     }
@@ -160,6 +176,7 @@ final class AVFoundationPlayer: NSObject, PlaybackEngine, AirPlayRouteProviding,
         queuedNextItem = nil
         queuedNextFailure = nil
         currentURL = nil
+        streamStartupTime = nil
         waveformLevels = []
         waveformURL = nil
         waveformTask?.cancel()
@@ -183,7 +200,11 @@ final class AVFoundationPlayer: NSObject, PlaybackEngine, AirPlayRouteProviding,
         itemStatusCancellables[identifier] = item.publisher(for: \.status, options: [.initial, .new])
             .receive(on: DispatchQueue.main)
             .sink { [weak self, weak item] status in
-                guard let self, let item, status == .failed else { return }
+                guard let self, let item else { return }
+                if status == .readyToPlay, item === self.currentItem {
+                    self.logStreamStartup("ready")
+                }
+                guard status == .failed else { return }
                 let message = item.error?.localizedDescription ?? "This track could not be played."
                 if item === self.currentItem {
                     self.failPlayback(message)
@@ -193,6 +214,12 @@ final class AVFoundationPlayer: NSObject, PlaybackEngine, AirPlayRouteProviding,
                     self.queuedNextFailure = message
                 }
             }
+    }
+
+    private func logStreamStartup(_ stage: String) {
+        guard let streamStartupTime else { return }
+        let elapsed = ProcessInfo.processInfo.systemUptime - streamStartupTime
+        startupLogger.debug("Stream \(stage, privacy: .public) after \(elapsed, format: .fixed(precision: 3)) seconds")
     }
 
     private func removeStatusObserver(for item: AVPlayerItem) {
@@ -228,6 +255,9 @@ final class AVFoundationPlayer: NSObject, PlaybackEngine, AirPlayRouteProviding,
         waveformLevels = []
         waveformURL = nil
         audioLevelsSubject.send(Array(repeating: 0, count: 32))
+
+        // Live streams have no finite waveform to scan. Keep their meter lightweight.
+        guard url.isFileURL else { return }
 
         waveformTask = Task.detached(priority: .utility) { [weak self] in
             let levels = Self.analyzeWaveform(url: url, bucketCount: 512)
